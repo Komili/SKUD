@@ -1,0 +1,165 @@
+/* --- Глобальные переменные и стили --- */
+:root {
+  --primary-color: #4a90e2; /* Яркий синий */
+  --secondary-color: #50e3c2; /* Бирюзовый */
+  --background-gradient: linear-gradient(to right top, #d4e4f7, #d8e7f8, #dde9f9, #e1ecfa, #e6eefb);
+  --card-shadow: 0 10px 20px rgba(0,0,0,0.08), 0 6px 6px rgba(0,0,0,0.1);
+}
+
+html {
+  min-height: 100vh;
+}
+
+body {
+  background: var(--background-gradient);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Переопределение стилей Bootstrap --- */
+.btn-primary {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  transition: all 0.3s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+/* --- Навигационная панель --- */
+.navbar {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.navbar-brand {
+  font-weight: 700;
+  color: var(--primary-color) !important;
+}
+
+/* --- Карточки сотрудников --- */
+.employee-card {
+  cursor: pointer;
+  border: none;
+  border-radius: 15px;
+  box-shadow: var(--card-shadow);
+  transition: all 0.3s ease;
+  background: white;
+}
+.employee-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 15px 25px rgba(0,0,0,0.12), 0 8px 8px rgba(0,0,0,0.08);
+}
+.employee-card .card-img-top {
+  width: 150px;
+  height: 150px;
+  object-fit: cover;
+  margin: 1rem auto 0;
+}
+
+.employee-card .card-title {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+.employee-card .card-footer {
+  background-color: #f8f9fa;
+  border-bottom-left-radius: 15px;
+  border-bottom-right-radius: 15px;
+}
+
+/* --- Статусы --- */
+.status-badge {
+  padding: 0.3em 0.6em;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  color: white;
+}
+.status-active {
+  background-color: #28a745; /* Зеленый */
+}
+.status-on-leave {
+  background-color: #ffc107; /* Желтый */
+  color: #212529;
+}
+.status-fired {
+  background-color: #dc3545; /* Красный */
+}
+
+/* --- Страница анкеты --- */
+.employee-detail-card .card-header {
+  background-color: var(--primary-color);
+  color: white;
+  font-weight: 600;
+  border-top-left-radius: 15px;
+  border-top-right-radius: 15px;
+}
+
+/* --- Таблица отчетов --- */
+.table {
+  background-color: white;
+  box-shadow: var(--card-shadow);
+  border-radius: 8px;
+  overflow: hidden; /* Для скругления углов */
+}
+.table thead {
+  background-color: #e9ecef;
+}
+.table td a {
+  font-weight: 500;
+  color: var(--primary-color);
+  text-decoration: none;
+}
+.table td a:hover {
+  text-decoration: underline;
+}
+
+/* --- Фильтры --- */
+.filter-panel {
+  background-color: white;
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+}
+
+/* --- Календарь --- */
+.react-datepicker-wrapper {
+  width: 100%;
+}
+.react-datepicker-wrapper .form-control {
+  border: 1px solid #ced4da;
+  width: 100%;
+}
+.react-datepicker {
+  border-radius: 10px !important;
+  box-shadow: var(--card-shadow);
+}
+.react-datepicker__header {
+  background-color: var(--primary-color) !important;
+  border-top-left-radius: 10px !important;
+  border-top-right-radius: 10px !important;
+}
+.react-datepicker__current-month, .react-datepicker-time__header, .react-datepicker__day-name {
+  color: white !important;
+}
+
+/* --- Страница входа --- */
+.login-page {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100vw;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  background: var(--background-gradient);
+}
+.login-card {
+  width: 100%;
+  max-width: 450px;
+  padding: 2.5rem;
+  border: none;
+  border-radius: 15px;
+  box-shadow: var(--card-shadow);
+  background: white;
+}
