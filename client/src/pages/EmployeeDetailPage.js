@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Row, Col, Card, Table, Spinner, Alert, Button, Image, ListGroup } from 'react-bootstrap';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -15,12 +15,13 @@ function EmployeeDetailPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showModal, setShowModal] = useState(false);
+    const [modalError, setModalError] = useState(''); // Состояние для ошибки в модальном окне
 
     // Даты для фильтра посещаемости
     const [startDate, setStartDate] = useState(new Date(new Date().setDate(1)));
     const [endDate, setEndDate] = useState(new Date());
 
-    const fetchEmployeeData = async () => {
+    const fetchEmployeeData = useCallback(async () => {
         try {
             setError('');
             const employeeRes = await axios.get(`/api/employees/${id}`);
@@ -28,9 +29,9 @@ function EmployeeDetailPage() {
         } catch (err) {
             setError('Не удалось загрузить данные сотрудника. Возможно, он был удален.');
         }
-    };
+    }, [id]);
     
-    const fetchAttendanceData = async () => {
+    const fetchAttendanceData = useCallback(async () => {
         try {
             setLoading(true);
             const params = { 
@@ -45,36 +46,39 @@ function EmployeeDetailPage() {
         } finally {
             setLoading(false);
         }
-    }
+    }, [id, startDate, endDate]);
 
-    const fetchActivityLogs = async () => {
+    const fetchActivityLogs = useCallback(async () => {
         try {
             const response = await axios.get(`/api/employees/${id}/activity`);
             setActivityLogs(response.data);
         } catch (err) {
             console.error("Не удалось загрузить последние активности.");
         }
-    };
+    }, [id]);
 
     useEffect(() => {
         fetchEmployeeData();
         fetchActivityLogs(); // Загружаем активности при монтировании
-    }, [id]);
+    }, [fetchEmployeeData, fetchActivityLogs]);
     
     useEffect(() => {
         if (startDate) {
             fetchAttendanceData();
         }
-    }, [id, startDate, endDate]);
+    }, [startDate, fetchAttendanceData]);
 
     const handleSaveEmployee = async (employeeData) => {
         try {
-            await axios.put(`/api/employees/${employeeData.id}`, employeeData);
-            setShowModal(false);
-            fetchEmployeeData();
+            setModalError(''); // Сбрасываем предыдущую ошибку
+            // Так как employeeData это FormData, нам нужен id из состояния
+            await axios.put(`/api/employees/${employee.id}`, employeeData);
+            setShowModal(false); // Закрываем окно только при успехе
+            fetchEmployeeData(); // Обновляем данные на странице
         } catch (error) {
             console.error("Ошибка при сохранении сотрудника:", error);
-            setError("Не удалось сохранить данные. Проверьте, что Email уникален.");
+            const message = error.response?.data?.error || "Не удалось сохранить данные. Проверьте, что Email и телефон уникальны.";
+            setModalError(message); // Устанавливаем ошибку для модального окна
         }
     };
 
@@ -203,9 +207,13 @@ function EmployeeDetailPage() {
             {employee && (
                 <EmployeeModal
                     show={showModal}
-                    onHide={() => setShowModal(false)}
+                    onHide={() => {
+                        setShowModal(false);
+                        setModalError(''); // Сбрасываем ошибку при закрытии
+                    }}
                     employee={employee}
                     onSave={handleSaveEmployee}
+                    serverError={modalError}
                 />
             )}
         </Container>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Row, Col, Card, Spinner, Alert, InputGroup, FormControl, Button, Form } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -15,25 +15,25 @@ function EmployeesPage({ selectedCompanyId }) {
 
     // Состояния для модального окна
     const [showModal, setShowModal] = useState(false);
-    const [selectedEmployee, setSelectedEmployee] = useState(null);
     const [modalError, setModalError] = useState('');
 
-    const fetchEmployees = async () => {
+    const fetchEmployees = useCallback(async () => {
         try {
             setError('');
             setLoading(true);
-            const response = await axios.get('/api/employees');
+            const params = { companyId: selectedCompanyId };
+            const response = await axios.get('/api/employees', { params });
             setEmployees(response.data);
         } catch (err) {
             setError('Не удалось загрузить список сотрудников.');
         } finally {
             setLoading(false);
         }
-    };
+    }, [selectedCompanyId]);
 
     useEffect(() => {
         fetchEmployees();
-    }, [selectedCompanyId]);
+    }, [fetchEmployees]);
 
     useEffect(() => {
         let data = employees;
@@ -56,7 +56,6 @@ function EmployeesPage({ selectedCompanyId }) {
 
     // --- Функции для модального окна ---
     const handleShowAddModal = () => {
-        setSelectedEmployee(null);
         setModalError('');
         setShowModal(true);
     };
@@ -69,30 +68,14 @@ function EmployeesPage({ selectedCompanyId }) {
     const handleSaveEmployee = async (employeeFormData) => {
         try {
             setModalError('');
-            if (selectedEmployee) {
-                // Редактирование
-                await axios.put(`/api/employees/${selectedEmployee.id}`, employeeFormData);
-            } else {
-                // Создание
-                await axios.post('/api/employees', employeeFormData);
-            }
+            // Создание нового сотрудника (логика редактирования удалена)
+            await axios.post('/api/employees', employeeFormData);
             fetchEmployees(); // Обновляем список
             handleCloseModal();
         } catch (error) {
             console.error("Ошибка при сохранении сотрудника:", error);
             const message = error.response?.data?.error || "Не удалось сохранить данные. Проверьте введенные значения и попробуйте снова.";
             setModalError(message);
-        }
-    };
-
-    const handleEditClick = async (employee) => {
-        try {
-            setModalError('');
-            const response = await axios.get(`/api/employees/${employee.id}`);
-            setSelectedEmployee(response.data);
-            setShowModal(true);
-        } catch (err) {
-            setError('Не удалось загрузить данные сотрудника для редактирования.');
         }
     };
 
@@ -118,7 +101,7 @@ function EmployeesPage({ selectedCompanyId }) {
                     <Col key={employee.id}>
                         <Card 
                             className="h-100 employee-card text-center" 
-                            onClick={() => handleEditClick(employee)}
+                            onClick={() => navigate(`/employees/${employee.id}`)}
                         >
                             <Card.Img variant="top" src={employee.photoUrl.startsWith('http') ? employee.photoUrl : `http://localhost:3001${employee.photoUrl}`} className="p-3 rounded-circle" />
                             <Card.Body>
@@ -183,7 +166,7 @@ function EmployeesPage({ selectedCompanyId }) {
             <EmployeeModal 
                 show={showModal}
                 onHide={handleCloseModal}
-                employee={selectedEmployee}
+                employee={null}
                 onSave={handleSaveEmployee}
                 serverError={modalError}
             />

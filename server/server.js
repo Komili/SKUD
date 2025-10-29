@@ -82,73 +82,118 @@ function startServer() {
     // События от терминала
     app.post('/api/hikvision/event', express.text({ type: '*/*' }), async (req, res) => {
         try {
+            console.log("\n--- [HIKVISION EVENT RECEIVED] ---");
+            console.log("Raw Body:", req.body);
+
             const jsonMatch = req.body.match(/{[\s\S]*}/);
-            if (!jsonMatch) return res.status(200).send('OK (Ignored)');
+            if (!jsonMatch) {
+                console.log("No JSON found in body. Ignoring.");
+                return res.status(200).send('OK (Ignored, no JSON)');
+            }
             
             const data = JSON.parse(jsonMatch[0]);
+            console.log("Parsed Data:", JSON.stringify(data, null, 2));
+
             const eventTimestamp = new Date(data.dateTime);
 
             if (serverStartTime && eventTimestamp < serverStartTime) {
+                console.log("Ignoring old event from before server start.");
                 return res.status(200).send('OK (Ignored, old event)');
             }
             
             const event = data.AccessControllerEvent;
-            if (!event) return res.status(200).send('OK (Ignored)');
+            if (!event) {
+                console.log("No AccessControllerEvent in data. Ignoring.");
+                return res.status(200).send('OK (Ignored, not an access event)');
+            }
 
             const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const employeeId = event.employeeNo || event.employeeNoString;
+            const employeeIdRaw = event.employeeNo || event.employeeNoString;
             const deviceName = event.deviceName || 'Терминал';
 
-            if (employeeId) {
+            console.log(`Raw Employee ID: '${employeeIdRaw}', Device: '${deviceName}'`);
+
+            if (employeeIdRaw) {
+                const employeeId = parseInt(employeeIdRaw, 10);
+                if (isNaN(employeeId)) {
+                    console.error(`Failed to parse employeeId: '${employeeIdRaw}' is not a valid number.`);
+                    return res.status(200).send('OK (Error, invalid employeeId)');
+                }
+                console.log(`Parsed Employee ID: ${employeeId}`);
+
                 const ipAddress = data.ipAddress;
                 const eventType = (ipAddress === '192.168.1.190') ? 'entry' : 'exit';
                 const eventDate = new Date(eventTimestamp).toISOString().split('T')[0];
+                console.log(`Event Type: ${eventType}, Event Date: ${eventDate}`);
 
                 const [empRows] = await pool.execute('SELECT fullName FROM employees WHERE id = ?', [employeeId]);
                 const name = empRows.length > 0 ? empRows[0].fullName : `ID ${employeeId}`;
+                console.log(`Employee Name: ${name}`);
+
+                console.log("Searching for existing log...");
+                const [existingLogRows] = await pool.execute(
+                    'SELECT id, checkin FROM attendance_logs WHERE employeeId = ? AND DATE(IFNULL(checkin, checkout)) = ?',
+                    [employeeId, eventDate]
+                );
+                const existingLog = existingLogRows.length > 0 ? existingLogRows[0] : null;
+                console.log("Existing Log Found:", existingLog);
 
                 if (eventType === 'entry') {
+                    console.log("Processing ENTRY event...");
+                    if (existingLog && existingLog.checkin) {
+                        console.log("Check-in already exists for today. Ignoring.");
+                        return res.status(200).send('OK (Duplicate Entry Ignored)');
+                    }
+
                     const message = `✅ *Вход*\n\n👤 **Сотрудник:** ${name}\n📍 **Устройство:** ${deviceName}\n⏰ **Время:** ${time}`;
                     bot.sendMessage(TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' })
                         .catch(err => console.error('[Telegram Error]', err.message));
 
-                    const [existing] = await pool.execute(`SELECT id FROM attendance_logs WHERE employeeId = ? AND eventType = 'entry' AND DATE(timestamp) = ?`, [employeeId, eventDate]);
-                    if (existing.length === 0) {
-                        await pool.execute('INSERT INTO attendance_logs (employeeId, timestamp, eventType) VALUES (?, ?, ?)', [employeeId, eventTimestamp, eventType]);
+                    if (existingLog) {
+                        console.log(`Updating existing log (ID: ${existingLog.id}) with check-in time.`);
+                        await pool.execute(
+                            'UPDATE attendance_logs SET checkin = ? WHERE id = ?',
+                            [eventTimestamp, existingLog.id]
+                        );
+                    } else {
+                        console.log("No existing log for today. Creating new record with check-in time.");
+                        await pool.execute(
+                            'INSERT INTO attendance_logs (employeeId, checkin) VALUES (?, ?)',
+                            [employeeId, eventTimestamp]
+                        );
                     }
-                } else {
+
+                } else { // eventType === 'exit'
+                    console.log("Processing EXIT event...");
                     const message = `🔴 *Выход*\n\n👤 **Сотрудник:** ${name}\n📍 **Устройство:** ${deviceName}\n⏰ **Время:** ${time}`;
                     bot.sendMessage(TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' })
                         .catch(err => console.error('[Telegram Error]', err.message));
 
-                    const [existing] = await pool.execute(`SELECT id FROM attendance_logs WHERE employeeId = ? AND eventType = 'exit' AND DATE(timestamp) = ?`, [employeeId, eventDate]);
-                    if (existing.length === 0) {
-                        await pool.execute('INSERT INTO attendance_logs (employeeId, timestamp, eventType) VALUES (?, ?, ?)', [employeeId, eventTimestamp, eventType]);
+                    if (existingLog) {
+                        console.log(`Updating existing log (ID: ${existingLog.id}) with check-out time.`);
+                        await pool.execute(
+                            'UPDATE attendance_logs SET checkout = ? WHERE id = ?',
+                            [eventTimestamp, existingLog.id]
+                        );
                     } else {
-                        await pool.execute('UPDATE attendance_logs SET timestamp = ? WHERE id = ?', [eventTimestamp, existing[0].id]);
+                        console.log("No existing log for today. Creating new record with check-out time.");
+                        await pool.execute(
+                            'INSERT INTO attendance_logs (employeeId, checkout) VALUES (?, ?)',
+                            [employeeId, eventTimestamp]
+                        );
                     }
                 }
                 
+                console.log("--- [EVENT PROCESSING FINISHED] ---");
                 return res.status(200).send('OK (Access Event Handled)');
+            } else {
+                console.log("Event has no employeeId. Ignoring.");
+                res.status(200).send('OK (System Event, no employeeId)');
             }
             
-            /*
-            // Уведомления о двери (отключено)
-            switch (event.subEventType) {
-                case 76: case 21:
-                    const openMsg = `🚪 *Дверь открыта*\n\n📍 **Устройство:** ${deviceName}\n⏰ **Время:** ${time}`;
-                    bot.sendMessage(TELEGRAM_CHAT_ID, openMsg, { parse_mode: 'Markdown' });
-                    break;
-                case 75: case 22:
-                    const closeMsg = `🔒 *Дверь закрыта*\n\n📍 **Устройство:** ${deviceName}\n⏰ **Время:** ${time}`;
-                    bot.sendMessage(TELEGRAM_CHAT_ID, closeMsg, { parse_mode: 'Markdown' });
-                    break;
-            }
-            */
-            
-            res.status(200).send('OK (System Event)');
         } catch (error) {
-            console.error("ОШИБКА ОБРАБОТКИ СОБЫТИЯ:", error);
+            console.error("--- [!!! CRITICAL ERROR IN EVENT HANDLER !!!] ---");
+            console.error(error);
             res.status(200).send('OK (Error Ignored)');
         }
     });
@@ -179,6 +224,17 @@ function startServer() {
     app.post('/api/employees', upload.single('photo'), async (req, res) => {
         try {
             const { fullName, position, companyId, departmentId, phoneNumber, email, status, dateOfBirth, hireDate } = req.body;
+            
+            // ПРОВЕРКА НА УНИКАЛЬНОСТЬ
+            const [existing] = await pool.execute(
+                'SELECT id FROM employees WHERE fullName = ? OR email = ? OR phoneNumber = ?',
+                [fullName, email, phoneNumber]
+            );
+
+            if (existing.length > 0) {
+                return res.status(409).json({ error: 'Сотрудник с таким ФИО, Email или телефоном уже существует.' });
+            }
+
             const photoUrl = req.file ? `/uploads/${req.file.filename}` : '/uploads/placeholder.png';
 
             if (!companyId || !departmentId) {
@@ -225,6 +281,16 @@ function startServer() {
             const { id } = req.params;
             const { fullName, position, companyId, departmentId, phoneNumber, email, status, dateOfBirth, hireDate } = req.body;
             
+            // ПРОВЕРКА НА УНИКАЛЬНОСТЬ (кроме текущего пользователя)
+            const [existing] = await pool.execute(
+                'SELECT id FROM employees WHERE (fullName = ? OR email = ? OR phoneNumber = ?) AND id != ?',
+                [fullName, email, phoneNumber, id]
+            );
+
+            if (existing.length > 0) {
+                return res.status(409).json({ error: 'Сотрудник с таким ФИО, Email или телефоном уже существует.' });
+            }
+
             let photoUrl = req.body.photoUrl;
             if (req.file) {
                 photoUrl = `/uploads/${req.file.filename}`;
@@ -299,14 +365,24 @@ function startServer() {
 
     app.get('/api/employees', async (req, res) => {
         try {
-            const sql = `
+            const { companyId } = req.query;
+
+            let sql = `
                 SELECT 
-                    e.id, e.fullName, e.position, c.name AS companyName, e.phoneNumber, e.photoUrl, e.status, e.dateOfBirth
+                    e.id, e.fullName, e.position, c.name AS companyName, e.phoneNumber, e.photoUrl, e.status, e.dateOfBirth, e.companyId
                 FROM employees e
                 LEFT JOIN companies c ON e.companyId = c.id
-                ORDER BY e.fullName
             `;
-            const [rows] = await pool.query(sql);
+            const params = [];
+
+            if (companyId) {
+                sql += ' WHERE e.companyId = ?';
+                params.push(companyId);
+            }
+
+            sql += ' ORDER BY e.fullName';
+            
+            const [rows] = await pool.query(sql, params);
             res.json(rows);
         } catch (error) {
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
@@ -361,19 +437,19 @@ function startServer() {
         try {
             let sql = `
                 SELECT
-                    e.id AS employeeId, e.fullName, DATE_FORMAT(al.timestamp, '%Y-%m-%d') as date,
-                    MIN(CASE WHEN al.eventType = 'entry' THEN TIME(al.timestamp) END) as firstEntry,
-                    MAX(CASE WHEN al.eventType = 'exit' THEN TIME(al.timestamp) END) as lastExit
+                    e.id AS employeeId, e.fullName, DATE_FORMAT(al.checkin, '%Y-%m-%d') as date,
+                    TIME(al.checkin) as firstEntry,
+                    TIME(al.checkout) as lastExit
                 FROM attendance_logs al
                 JOIN employees e ON e.id = al.employeeId
-                WHERE DATE(al.timestamp) BETWEEN ? AND ?
+                WHERE DATE(al.checkin) BETWEEN ? AND ?
             `;
             const params = [startDate, endDate];
 
             if (companyId) sql += ' AND e.companyId = ?', params.push(companyId);
             if (employeeId) sql += ' AND e.id = ?', params.push(employeeId);
             
-            sql += ` GROUP BY e.id, date ORDER BY date DESC, e.fullName`;
+            sql += ` ORDER BY date DESC, e.fullName`;
 
             const [rows] = await pool.execute(sql, params);
             
