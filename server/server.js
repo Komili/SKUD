@@ -11,7 +11,15 @@ const saltRounds = 10;
 // --- Глобальные настройки ---
 const PORT = 3001;
 const TELEGRAM_TOKEN = '8474518444:AAHbd-tFIrYUtI7jqdbzRBfqc6mRZwbD-sI';
-const TELEGRAM_CHAT_ID = '305812935';
+const TELEGRAM_CHAT_IDS = ['305812935', '5409029684'];
+
+// Вспомогательная функция для отправки сообщения на все ID в списке
+function sendTelegramMessage(message, options) {
+    TELEGRAM_CHAT_IDS.forEach(chatId => {
+        bot.sendMessage(chatId, message, options)
+           .catch(err => console.error(`[Telegram Error] Не удалось отправить сообщение на ${chatId}:`, err.message));
+    });
+}
 
 // --- Настройки MySQL ---
 const mysqlConfig = {
@@ -82,36 +90,50 @@ function startServer() {
     // События от терминала
     app.post('/api/hikvision/event', express.text({ type: '*/*' }), async (req, res) => {
         try {
-            console.log("\n--- [HIKVISION EVENT RECEIVED] ---");
-            console.log("Raw Body:", req.body);
+            // console.log("--- [HIKVISION EVENT RECEIVED] ---");
+            // console.log("Raw Body:", req.body);
 
             const jsonMatch = req.body.match(/{[\s\S]*}/);
             if (!jsonMatch) {
-                console.log("No JSON found in body. Ignoring.");
+                // console.log("No JSON found in body. Ignoring.");
                 return res.status(200).send('OK (Ignored, no JSON)');
             }
             
             const data = JSON.parse(jsonMatch[0]);
-            console.log("Parsed Data:", JSON.stringify(data, null, 2));
+            // console.log("Parsed Data:", JSON.stringify(data, null, 2));
 
             const eventTimestamp = new Date(data.dateTime);
 
             if (serverStartTime && eventTimestamp < serverStartTime) {
-                console.log("Ignoring old event from before server start.");
+                // console.log("Ignoring old event from before server start.");
                 return res.status(200).send('OK (Ignored, old event)');
             }
             
             const event = data.AccessControllerEvent;
             if (!event) {
-                console.log("No AccessControllerEvent in data. Ignoring.");
+                // console.log("No AccessControllerEvent in data. Ignoring.");
                 return res.status(200).send('OK (Ignored, not an access event)');
+            }
+
+            // --- Обработка события удаленной разблокировки двери ---
+            if (event.majorEventType === 3 && event.subEventType === 1024) {
+                const doorName = event.deviceName || 'Неизвестная дверь';
+                const remoteHost = event.remoteHostAddr || 'Неизвестный хост';
+                const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                const message = `🔓 *Дверь разблокирована удаленно*\n\n🚪 **Устройство:** ${doorName}\n💻 **С хоста:** ${remoteHost}\n⏰ **Время:** ${time}`;
+                
+                sendTelegramMessage(message, { parse_mode: 'Markdown' });
+                
+                console.log(`[HIKVISION EVENT] Отправлено уведомление об удаленной разблокировке двери: ${doorName} с ${remoteHost}`);
+                return res.status(200).send('OK (Remote Unlock Event Handled)');
             }
 
             const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const employeeIdRaw = event.employeeNo || event.employeeNoString;
             const deviceName = event.deviceName || 'Терминал';
 
-            console.log(`Raw Employee ID: '${employeeIdRaw}', Device: '${deviceName}'`);
+            // console.log(`Raw Employee ID: '${employeeIdRaw}', Device: '${deviceName}'`);
 
             if (employeeIdRaw) {
                 const employeeId = parseInt(employeeIdRaw, 10);
@@ -119,44 +141,39 @@ function startServer() {
                     console.error(`Failed to parse employeeId: '${employeeIdRaw}' is not a valid number.`);
                     return res.status(200).send('OK (Error, invalid employeeId)');
                 }
-                console.log(`Parsed Employee ID: ${employeeId}`);
+                // console.log(`Parsed Employee ID: ${employeeId}`);
 
-                const ipAddress = data.ipAddress;
-                const eventType = (ipAddress === '192.168.1.190') ? 'entry' : 'exit';
-                const eventDate = new Date(eventTimestamp).toISOString().split('T')[0];
-                console.log(`Event Type: ${eventType}, Event Date: ${eventDate}`);
+                // console.log(`Event Type: ${eventType}, Event Date: ${eventDate}`);
 
                 const [empRows] = await pool.execute('SELECT fullName FROM employees WHERE id = ?', [employeeId]);
                 const name = empRows.length > 0 ? empRows[0].fullName : `ID ${employeeId}`;
-                console.log(`Employee Name: ${name}`);
+                // console.log(`Employee Name: ${name}`);
 
-                console.log("Searching for existing log...");
+                // console.log("Searching for existing log...");
                 const [existingLogRows] = await pool.execute(
                     'SELECT id, checkin FROM attendance_logs WHERE employeeId = ? AND DATE(IFNULL(checkin, checkout)) = ?',
                     [employeeId, eventDate]
                 );
                 const existingLog = existingLogRows.length > 0 ? existingLogRows[0] : null;
-                console.log("Existing Log Found:", existingLog);
+                // console.log("Existing Log Found:", existingLog);
 
                 if (eventType === 'entry') {
-                    console.log("Processing ENTRY event...");
+                    // console.log("Processing ENTRY event...");
                     if (existingLog && existingLog.checkin) {
-                        console.log("Check-in already exists for today. Ignoring.");
+                        // console.log("Check-in already exists for today. Ignoring.");
                         return res.status(200).send('OK (Duplicate Entry Ignored)');
                     }
 
-                    const message = `✅ *Вход*\n\n👤 **Сотрудник:** ${name}\n📍 **Устройство:** ${deviceName}\n⏰ **Время:** ${time}`;
-                    bot.sendMessage(TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' })
-                        .catch(err => console.error('[Telegram Error]', err.message));
+                    sendTelegramMessage(message, { parse_mode: 'Markdown' });
 
                     if (existingLog) {
-                        console.log(`Updating existing log (ID: ${existingLog.id}) with check-in time.`);
+                        // console.log(`Updating existing log (ID: ${existingLog.id}) with check-in time.`);
                         await pool.execute(
                             'UPDATE attendance_logs SET checkin = ? WHERE id = ?',
                             [eventTimestamp, existingLog.id]
                         );
                     } else {
-                        console.log("No existing log for today. Creating new record with check-in time.");
+                        // console.log("No existing log for today. Creating new record with check-in time.");
                         await pool.execute(
                             'INSERT INTO attendance_logs (employeeId, checkin) VALUES (?, ?)',
                             [employeeId, eventTimestamp]
@@ -164,19 +181,18 @@ function startServer() {
                     }
 
                 } else { // eventType === 'exit'
-                    console.log("Processing EXIT event...");
+                    // console.log("Processing EXIT event...");
                     const message = `🔴 *Выход*\n\n👤 **Сотрудник:** ${name}\n📍 **Устройство:** ${deviceName}\n⏰ **Время:** ${time}`;
-                    bot.sendMessage(TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' })
-                        .catch(err => console.error('[Telegram Error]', err.message));
+                    sendTelegramMessage(message, { parse_mode: 'Markdown' });
 
                     if (existingLog) {
-                        console.log(`Updating existing log (ID: ${existingLog.id}) with check-out time.`);
+                        // console.log(`Updating existing log (ID: ${existingLog.id}) with check-out time.`);
                         await pool.execute(
                             'UPDATE attendance_logs SET checkout = ? WHERE id = ?',
                             [eventTimestamp, existingLog.id]
                         );
                     } else {
-                        console.log("No existing log for today. Creating new record with check-out time.");
+                        // console.log("No existing log for today. Creating new record with check-out time.");
                         await pool.execute(
                             'INSERT INTO attendance_logs (employeeId, checkout) VALUES (?, ?)',
                             [employeeId, eventTimestamp]
@@ -184,10 +200,10 @@ function startServer() {
                     }
                 }
                 
-                console.log("--- [EVENT PROCESSING FINISHED] ---");
+                // console.log("--- [EVENT PROCESSING FINISHED] ---");
                 return res.status(200).send('OK (Access Event Handled)');
             } else {
-                console.log("Event has no employeeId. Ignoring.");
+                // console.log("Event has no employeeId. Ignoring.");
                 res.status(200).send('OK (System Event, no employeeId)');
             }
             
@@ -476,7 +492,7 @@ function startServer() {
     app.listen(PORT, () => {
         serverStartTime = new Date();
         console.log(`🚀 **Финальный сервер v3 (MySQL)** запущен на порту ${PORT}!`);
-        bot.sendMessage(TELEGRAM_CHAT_ID, '🚀 **Финальный сервер v3 (MySQL)** запущен!', { parse_mode: 'Markdown' });
+        sendTelegramMessage('🚀 **Финальный сервер v3 (MySQL)** запущен!', { parse_mode: 'Markdown' });
     });
 }
 
