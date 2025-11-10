@@ -115,17 +115,25 @@ function startServer() {
                 return res.status(200).send('OK (Ignored, not an access event)');
             }
 
-            // --- Определение местоположения по IP терминала ---
+            // --- Определение местоположения и типа события по IP терминала ---
             const terminalIp = data.ipAddress;
             const officeMapping = {
-                '192.168.1.190': { office: 'Makon', door: 'Вход (Снаружи)' },
-                '192.168.1.191': { office: 'Makon', door: 'Выход (Внутри)' },
-                '192.168.0.161': { office: 'Favz', door: 'Вход (Снаружи)' },
-                '192.168.0.160': { office: 'Favz', door: 'Выход (Внутри)' }
+                '192.168.1.190': { office: 'Makon', door: 'Вход (Снаружи)', type: 'entry' },
+                '192.168.1.191': { office: 'Makon', door: 'Выход (Внутри)', type: 'exit' },
+                '192.168.0.161': { office: 'Favz', door: 'Вход (Снаружи)', type: 'entry' },
+                '192.168.0.160': { office: 'Favz', door: 'Выход (Внутри)', type: 'exit' }
             };
             const detectedLocation = officeMapping[terminalIp];
-            const officeName = detectedLocation ? detectedLocation.office : 'Неизвестный офис';
-            const doorDescription = detectedLocation ? detectedLocation.door : (event.deviceName || 'Неизвестная дверь');
+
+            // Если IP не найден в списке, событие игнорируется
+            if (!detectedLocation) {
+                console.warn(`[ПРЕДУПРЕЖДЕНИЕ] Получено событие с неизвестного IP терминала: ${terminalIp}. Игнорируется.`);
+                return res.status(200).send('OK (Ignored, unknown terminal IP)');
+            }
+
+            const officeName = detectedLocation.office;
+            const doorDescription = detectedLocation.door;
+            const eventType = detectedLocation.type; // <-- Новая, надежная логика
 
             // --- Обработка события удаленной разблокировки двери ---
             if (event.majorEventType === 3 && event.subEventType === 1024) {
@@ -152,7 +160,6 @@ function startServer() {
 
                 // --- ПРОВЕРКА НА СУЩЕСТВОВАНИЕ СОТРУДНИКА ---
                 const [empRows] = await pool.execute('SELECT fullName FROM employees WHERE id = ?', [employeeId]);
-                const eventType = event.doorNo === 1 ? 'entry' : 'exit';
                 const eventIcon = eventType === 'entry' ? '🟢' : '🔴';
 
                 if (empRows.length === 0) {
@@ -161,10 +168,14 @@ function startServer() {
                     sendTelegramMessage(warningMessage, { parse_mode: 'Markdown' });
                     return res.status(200).send('OK (Ignored, unknown employee)');
                 }
+                const eventDate = eventTimestamp.toISOString().split('T')[0];
                 const name = empRows[0].fullName;
 
-                const eventDate = eventTimestamp.toISOString().split('T')[0];
+                // --- 1. Отправляем уведомление в Telegram при каждом событии ---
+                const message = `${eventIcon} *${eventType === 'entry' ? 'Вход' : 'Выход'} сотрудника*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n👤 **Сотрудник:** ${name}\n⏰ **Время:** ${time}`;
+                sendTelegramMessage(message, { parse_mode: 'Markdown' });
 
+                // --- 2. Применяем логику для записи в базу данных ---
                 const [existingLogRows] = await pool.execute(
                     'SELECT id, checkin FROM attendance_logs WHERE employeeId = ? AND DATE(IFNULL(checkin, checkout)) = ?',
                     [employeeId, eventDate]
@@ -172,29 +183,26 @@ function startServer() {
                 const existingLog = existingLogRows.length > 0 ? existingLogRows[0] : null;
 
                 if (eventType === 'entry') {
-                    if (existingLog && existingLog.checkin) {
-                        return res.status(200).send('OK (Duplicate Entry Ignored)');
+                    // Записываем в базу только ПЕРВЫЙ вход за день
+                    if (!existingLog || !existingLog.checkin) {
+                        if (existingLog) {
+                            // Если запись за этот день уже есть (например, был только выход), обновляем ее
+                            await pool.execute(
+                                'UPDATE attendance_logs SET checkin = ? WHERE id = ?',
+                                [eventTimestamp, existingLog.id]
+                            );
+                        } else {
+                            // Если записи за этот день нет, создаем новую
+                            await pool.execute(
+                                'INSERT INTO attendance_logs (employeeId, checkin) VALUES (?, ?)',
+                                [employeeId, eventTimestamp]
+                            );
+                        }
                     }
-                    
-                    const message = `${eventIcon} *Вход сотрудника*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n👤 **Сотрудник:** ${name}\n⏰ **Время:** ${time}`;
-                    sendTelegramMessage(message, { parse_mode: 'Markdown' });
-
-                    if (existingLog) {
-                        await pool.execute(
-                            'UPDATE attendance_logs SET checkin = ? WHERE id = ?',
-                            [eventTimestamp, existingLog.id]
-                        );
-                    } else {
-                        await pool.execute(
-                            'INSERT INTO attendance_logs (employeeId, checkin) VALUES (?, ?)',
-                            [employeeId, eventTimestamp]
-                        );
-                    }
+                    // Если checkin уже есть, ничего не делаем с базой
 
                 } else { // eventType === 'exit'
-                    const message = `${eventIcon} *Выход сотрудника*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n👤 **Сотрудник:** ${name}\n⏰ **Время:** ${time}`;
-                    sendTelegramMessage(message, { parse_mode: 'Markdown' });
-
+                    // Всегда обновляем или вставляем время выхода, чтобы сохранить ПОСЛЕДНИЙ выход
                     if (existingLog) {
                         await pool.execute(
                             'UPDATE attendance_logs SET checkout = ? WHERE id = ?',
