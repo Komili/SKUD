@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Form, Button, Alert } from 'react-bootstrap';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 function LoginPage({ onLogin }) {
+    const { t } = useTranslation();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -20,23 +22,23 @@ function LoginPage({ onLogin }) {
             }
         } catch (err) {
             console.log(err);
-            setError(err.response?.data?.message || 'Произошла ошибка при входе.');
+            setError(err.response?.data?.message || t('loginError'));
         }
     };
 
     return (
         <div className="login-page">
             <div className="login-card">
-                <h2 className="text-center mb-4">Добро пожаловать!</h2>
+                <h2 className="text-center mb-4">{t('welcomeMessage')}</h2>
                 <p className="text-center text-muted mb-4">
-                    Войдите в систему FAVZ-GROUP для управления персоналом и отчетами.
+                    {t('loginPrompt')}
                 </p>
                 <Form onSubmit={handleSubmit}>
                     <Form.Group className="mb-3">
-                        <Form.Label>Имя пользователя</Form.Label>
+                        <Form.Label>{t('usernameLabel')}</Form.Label>
                         <Form.Control
                             type="text"
-                            placeholder="Введите имя пользователя"
+                            placeholder={t('usernamePlaceholder')}
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             required
@@ -44,10 +46,10 @@ function LoginPage({ onLogin }) {
                     </Form.Group>
 
                     <Form.Group className="mb-3">
-                        <Form.Label>Пароль</Form.Label>
+                        <Form.Label>{t('passwordLabel')}</Form.Label>
                         <Form.Control
                             type="password"
-                            placeholder="Пароль"
+                            placeholder={t('passwordPlaceholder')}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
@@ -58,7 +60,7 @@ function LoginPage({ onLogin }) {
 
                     <div className="d-grid">
                         <Button variant="primary" type="submit" size="lg">
-                            Войти
+                            {t('loginButton')}
                         </Button>
                     </div>
                 </Form>

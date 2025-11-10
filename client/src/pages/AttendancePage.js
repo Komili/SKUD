@@ -8,6 +8,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import { useTranslation } from 'react-i18next';
 
 // Helper function to format date to YYYY-MM-DD
 const formatDate = (date) => {
@@ -36,15 +37,16 @@ const parseWorkedHoursToMinutes = (hoursString) => {
 };
 
 // Helper to format total minutes back to a "H ч M мин" string
-const formatMinutesToWorkedHours = (totalMinutes) => {
-    if (totalMinutes === 0) return "0 ч 0 мин";
+const formatMinutesToWorkedHours = (totalMinutes, t) => {
+    if (totalMinutes === 0) return t('workedHoursFormat', { hours: 0, minutes: 0 });
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
-    return `${hours} ч ${minutes} мин`;
+    return t('workedHoursFormat', { hours, minutes });
 };
 
 
 function AttendancePage({ selectedCompanyId }) {
+    const { t } = useTranslation();
     const [reportData, setReportData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -67,7 +69,7 @@ function AttendancePage({ selectedCompanyId }) {
             const res = await axios.get('/api/reports/attendance', { params });
             setReportData(res.data);
         } catch (error) {
-            console.error("Ошибка при загрузке отчета:", error);
+            console.error(t('reportLoadError'), error);
         } finally {
             setLoading(false);
         }
@@ -93,9 +95,9 @@ function AttendancePage({ selectedCompanyId }) {
         const doc = new jsPDF({ orientation: 'landscape' });
 
         doc.setFontSize(18);
-        doc.text('Отчет о посещаемости', 14, 22);
+        doc.text(t('attendanceReportTitle'), 14, 22);
 
-        const head = [['№', 'Сотрудник', 'Дата', 'Первый вход', 'Последний выход', 'Отработано']];
+        const head = [[t('pdfEmployeeHeader'), t('pdfDateHeader'), t('pdfFirstCheckinHeader'), t('pdfLastCheckoutHeader'), t('pdfWorkedHoursHeader')]];
         const body = filteredData.map((item, index) => [
             index + 1,
             item.fullName,
@@ -125,7 +127,7 @@ function AttendancePage({ selectedCompanyId }) {
 
     const exportXLS = async () => {
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet('Посещаемость');
+        const worksheet = workbook.addWorksheet(t('attendanceWorksheetName'));
 
         // --- DATA PREPARATION ---
         const employeeData = filteredData.reduce((acc, item) => {
@@ -143,9 +145,9 @@ function AttendancePage({ selectedCompanyId }) {
         }
 
         // --- HEADERS ---
-        const headerRow = ['№', 'ФИО Сотрудника'];
+        const headerRow = ['№', t('xlsEmployeeFullNameHeader')];
         datesInRange.forEach(date => headerRow.push(new Date(date).toLocaleDateString('ru-RU')));
-        headerRow.push('Итого отработано');
+        headerRow.push(t('xlsTotalWorkedHoursHeader'));
         worksheet.addRow(headerRow);
 
         // --- DATA ROWS ---
@@ -165,7 +167,7 @@ function AttendancePage({ selectedCompanyId }) {
                 }
             });
 
-            row.push(formatMinutesToWorkedHours(totalMinutes));
+            row.push(formatMinutesToWorkedHours(totalMinutes, t));
             worksheet.addRow(row);
         });
 
@@ -236,16 +238,16 @@ function AttendancePage({ selectedCompanyId }) {
         <Container fluid>
             <Row className="align-items-center mb-4">
                 <Col md={5} className="d-flex align-items-center">
-                    <h2 className="mb-0">Отчет о посещаемости</h2>
-                    <DropdownButton id="dropdown-basic-button" title="Экспорт" variant="primary" className="ms-3">
-                        <Dropdown.Item onClick={exportPDF}>Экспорт в PDF</Dropdown.Item>
-                        <Dropdown.Item onClick={exportXLS}>Экспорт в XLS</Dropdown.Item>
+                    <h2 className="mb-0">{t('attendanceReportTitle')}</h2>
+                    <DropdownButton id="dropdown-basic-button" title={t('exportButton')} variant="primary" className="ms-3">
+                        <Dropdown.Item onClick={exportPDF}>{t('exportToPdfButton')}</Dropdown.Item>
+                        <Dropdown.Item onClick={exportXLS}>{t('exportToXlsButton')}</Dropdown.Item>
                     </DropdownButton>
                 </Col>
                 <Col md={3}>
                     <InputGroup>
                         <FormControl
-                            placeholder="Поиск по имени..."
+                            placeholder={t('searchByNamePlaceholder')}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -263,7 +265,7 @@ function AttendancePage({ selectedCompanyId }) {
                         isClearable={true}
                         className="form-control"
                         dateFormat="dd/MM/yyyy"
-                        placeholderText="Выберите диапазон дат"
+                        placeholderText={t('dateRangePlaceholder')}
                     />
                 </Col>
             </Row>
@@ -274,11 +276,11 @@ function AttendancePage({ selectedCompanyId }) {
                 <Table striped bordered hover responsive>
                     <thead>
                         <tr>
-                            <th>Сотрудник</th>
-                            <th>Дата</th>
-                            <th>Первый вход</th>
-                            <th>Последний выход</th>
-                            <th>Отработано</th>
+                            <th>{t('employeeHeader')}</th>
+                            <th>{t('dateHeader')}</th>
+                            <th>{t('firstCheckinHeader')}</th>
+                            <th>{t('lastCheckoutHeader')}</th>
+                            <th>{t('workedHoursHeader')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -299,7 +301,7 @@ function AttendancePage({ selectedCompanyId }) {
                     </tbody>
                 </Table>
             ) : (
-                <Alert variant="info">Нет данных за выбранный период.</Alert>
+                <Alert variant="info">{t('noDataForPeriodMessage')}</Alert>
             )}
         </Container>
     );

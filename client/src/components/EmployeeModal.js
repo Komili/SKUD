@@ -3,11 +3,15 @@ import { Modal, Button, Form, Row, Col, Alert } from 'react-bootstrap';
 import axios from 'axios';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import ru from 'date-fns/locale/ru';
+import en from 'date-fns/locale/en-US';
 import 'react-datepicker/dist/react-datepicker.css';
+import { useTranslation } from 'react-i18next';
 
 registerLocale('ru', ru);
+registerLocale('en', en);
 
 function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
+    const { t, i18n } = useTranslation();
     const [formData, setFormData] = useState({});
     const [companies, setCompanies] = useState([]);
     const [departments, setDepartments] = useState([]);
@@ -24,11 +28,11 @@ function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
                 setCompanies(companiesRes.data);
                 setDepartments(departmentsRes.data);
             } catch (error) {
-                console.error("Ошибка при загрузке справочников:", error);
+                console.error(t('directoriesLoadError'), error);
             }
         };
         fetchDirectories();
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         if (employee) {
@@ -47,15 +51,15 @@ function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
 
     const validate = () => {
         const newErrors = {};
-        if (!formData.fullName) newErrors.fullName = 'Поле обязательно для заполнения.';
-        if (!formData.position) newErrors.position = 'Поле обязательно для заполнения.';
-        if (!formData.email || !/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Введите корректный email.';
-        if (!formData.phoneNumber) newErrors.phoneNumber = 'Поле обязательно для заполнения.';
-        if (!formData.companyId) newErrors.companyId = 'Поле обязательно для заполнения.';
-        if (!formData.departmentId) newErrors.departmentId = 'Поле обязательно для заполнения.';
-        if (!formData.hireDate) newErrors.hireDate = 'Поле обязательно для заполнения.';
-        if (!formData.dateOfBirth) newErrors.dateOfBirth = 'Поле обязательно для заполнения.';
-        if (!employee && !selectedFile) newErrors.photo = 'Фото обязательно для нового сотрудника.';
+        if (!formData.fullName) newErrors.fullName = t('validationRequired');
+        if (!formData.position) newErrors.position = t('validationRequired');
+        if (!formData.email || !/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = t('validationEmail');
+        if (!formData.phoneNumber) newErrors.phoneNumber = t('validationRequired');
+        if (!formData.companyId) newErrors.companyId = t('validationRequired');
+        if (!formData.departmentId) newErrors.departmentId = t('validationRequired');
+        if (!formData.hireDate) newErrors.hireDate = t('validationRequired');
+        if (!formData.dateOfBirth) newErrors.dateOfBirth = t('validationRequired');
+        if (!employee && !selectedFile) newErrors.photo = t('validationPhotoRequired');
         return newErrors;
     };
 
@@ -102,54 +106,53 @@ function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
     return (
         <Modal show={show} onHide={onHide} size="lg">
             <Modal.Header closeButton>
-                <Modal.Title>{employee ? 'Редактировать' : 'Добавить'} сотрудника</Modal.Title>
+                <Modal.Title>{employee ? t('editEmployeeTitle') : t('addEmployeeTitle')}</Modal.Title>
             </Modal.Header>
             <Modal.Body>
                 {serverError && <Alert variant="danger">{serverError}</Alert>}
                 {cantSave && (
                     <Alert variant="warning">
-                        Невозможно добавить сотрудника, так как в системе нет компаний или отделов. 
-                        Пожалуйста, сначала создайте их в соответствующем разделе.
+                        {t('cantAddEmployeeWarning')}
                     </Alert>
                 )}
                 <Form noValidate onSubmit={handleSubmit}>
                     <Row>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>ФИО</Form.Label>
+                            <Form.Label>{t('fullNameLabel')}</Form.Label>
                             <Form.Control type="text" name="fullName" value={formData.fullName || ''} onChange={handleChange} isInvalid={!!errors.fullName} disabled={cantSave} />
                             <Form.Control.Feedback type="invalid">{errors.fullName}</Form.Control.Feedback>
                         </Form.Group></Col>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Должность</Form.Label>
+                            <Form.Label>{t('positionLabel')}</Form.Label>
                             <Form.Control type="text" name="position" value={formData.position || ''} onChange={handleChange} isInvalid={!!errors.position} disabled={cantSave} />
                             <Form.Control.Feedback type="invalid">{errors.position}</Form.Control.Feedback>
                         </Form.Group></Col>
                     </Row>
                     <Row>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Email</Form.Label>
+                            <Form.Label>{t('emailLabel')}</Form.Label>
                             <Form.Control type="email" name="email" value={formData.email || ''} onChange={handleChange} isInvalid={!!errors.email} disabled={cantSave} />
                             <Form.Control.Feedback type="invalid">{errors.email}</Form.Control.Feedback>
                         </Form.Group></Col>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Телефон</Form.Label>
+                            <Form.Label>{t('phoneLabel')}</Form.Label>
                             <Form.Control type="tel" name="phoneNumber" value={formData.phoneNumber || ''} onChange={handleChange} isInvalid={!!errors.phoneNumber} disabled={cantSave} />
                             <Form.Control.Feedback type="invalid">{errors.phoneNumber}</Form.Control.Feedback>
                         </Form.Group></Col>
                     </Row>
                     <Row>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Компания</Form.Label>
+                            <Form.Label>{t('companyLabel')}</Form.Label>
                             <Form.Select name="companyId" value={formData.companyId || ''} onChange={handleChange} isInvalid={!!errors.companyId} disabled={cantSave}>
-                                <option value="">Выберите компанию...</option>
+                                <option value="">{t('selectCompanyPlaceholder')}</option>
                                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </Form.Select>
                             <Form.Control.Feedback type="invalid">{errors.companyId}</Form.Control.Feedback>
                         </Form.Group></Col>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Отдел</Form.Label>
+                            <Form.Label>{t('departmentLabel')}</Form.Label>
                             <Form.Select name="departmentId" value={formData.departmentId || ''} onChange={handleChange} isInvalid={!!errors.departmentId} disabled={cantSave}>
-                                <option value="">Выберите отдел...</option>
+                                <option value="">{t('selectDepartmentPlaceholder')}</option>
                                 {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </Form.Select>
                             <Form.Control.Feedback type="invalid">{errors.departmentId}</Form.Control.Feedback>
@@ -157,22 +160,22 @@ function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
                     </Row>
                     <Row>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Дата приема</Form.Label>
+                            <Form.Label>{t('hireDateLabel')}</Form.Label>
                             <DatePicker
-                                locale="ru"
+                                locale={i18n.language}
                                 selected={formData.hireDate ? new Date(formData.hireDate) : null}
                                 onChange={(date) => handleDateChange(date, 'hireDate')}
                                 className={`form-control ${errors.hireDate ? 'is-invalid' : ''}`}
                                 dateFormat="dd.MM.yyyy"
-                                placeholderText="дд.мм.гггг"
+                                placeholderText={t('datePlaceholder')}
                                 disabled={cantSave}
                             />
                             <Form.Control.Feedback type="invalid">{errors.hireDate}</Form.Control.Feedback>
                         </Form.Group></Col>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Дата рождения</Form.Label>
+                            <Form.Label>{t('dateOfBirthLabel')}</Form.Label>
                             <DatePicker
-                                locale="ru"
+                                locale={i18n.language}
                                 selected={formData.dateOfBirth ? new Date(formData.dateOfBirth) : null}
                                 onChange={(date) => handleDateChange(date, 'dateOfBirth')}
                                 className={`form-control ${errors.dateOfBirth ? 'is-invalid' : ''}`}
@@ -180,7 +183,7 @@ function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
                                 showYearDropdown
                                 dropdownMode="select"
                                 dateFormat="dd.MM.yyyy"
-                                placeholderText="дд.мм.гггг"
+                                placeholderText={t('datePlaceholder')}
                                 disabled={cantSave}
                             />
                             <Form.Control.Feedback type="invalid">{errors.dateOfBirth}</Form.Control.Feedback>
@@ -188,16 +191,16 @@ function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
                     </Row>
                     <Row>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Статус</Form.Label>
+                            <Form.Label>{t('statusLabel')}</Form.Label>
                             <Form.Select name="status" value={formData.status || 'Активен'} onChange={handleChange} disabled={cantSave}>
-                                <option value="Активен">Активен</option>
-                                <option value="В отпуске">В отпуске</option>
-                                <option value="На больничном">На больничном</option>
-                                <option value="Уволен">Уволен</option>
+                                <option value="Активен">{t('statusActive')}</option>
+                                <option value="В отпуске">{t('statusOnLeave')}</option>
+                                <option value="На больничном">{t('statusOnSickLeave')}</option>
+                                <option value="Уволен">{t('statusFired')}</option>
                             </Form.Select>
                         </Form.Group></Col>
                         <Col md={6}><Form.Group className="mb-3">
-                            <Form.Label>Фото сотрудника</Form.Label>
+                            <Form.Label>{t('photoLabel')}</Form.Label>
                             <Form.Control type="file" onChange={handleFileChange} isInvalid={!!errors.photo} disabled={cantSave} />
                             <Form.Control.Feedback type="invalid">{errors.photo}</Form.Control.Feedback>
                         </Form.Group></Col>
@@ -205,8 +208,8 @@ function EmployeeModal({ show, onHide, employee, onSave, serverError }) {
                 </Form>
             </Modal.Body>
             <Modal.Footer>
-                <Button variant="secondary" onClick={onHide}>Отмена</Button>
-                <Button variant="primary" onClick={handleSubmit} disabled={cantSave}>Сохранить</Button>
+                <Button variant="secondary" onClick={onHide}>{t('cancelButton')}</Button>
+                <Button variant="primary" onClick={handleSubmit} disabled={cantSave}>{t('saveButton')}</Button>
             </Modal.Footer>
         </Modal>
     );

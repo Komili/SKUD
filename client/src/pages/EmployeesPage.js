@@ -3,8 +3,10 @@ import { Container, Row, Col, Card, Spinner, Alert, InputGroup, FormControl, But
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import EmployeeModal from '../components/EmployeeModal'; // Импортируем модальное окно
+import { useTranslation } from 'react-i18next';
 
 function EmployeesPage({ selectedCompanyId }) {
+    const { t } = useTranslation();
     const [employees, setEmployees] = useState([]);
     const [filteredEmployees, setFilteredEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -25,11 +27,11 @@ function EmployeesPage({ selectedCompanyId }) {
             const response = await axios.get('/api/employees', { params });
             setEmployees(response.data);
         } catch (err) {
-            setError('Не удалось загрузить список сотрудников.');
+            setError(t('employeeLoadError'));
         } finally {
             setLoading(false);
         }
-    }, [selectedCompanyId]);
+    }, [selectedCompanyId, t]);
 
     useEffect(() => {
         fetchEmployees();
@@ -73,8 +75,8 @@ function EmployeesPage({ selectedCompanyId }) {
             fetchEmployees(); // Обновляем список
             handleCloseModal();
         } catch (error) {
-            console.error("Ошибка при сохранении сотрудника:", error);
-            const message = error.response?.data?.error || "Не удалось сохранить данные. Проверьте введенные значения и попробуйте снова.";
+            console.error(t('employeeSaveError'), error);
+            const message = error.response?.data?.error || t('employeeSaveDefaultError');
             setModalError(message);
         }
     };
@@ -93,7 +95,7 @@ function EmployeesPage({ selectedCompanyId }) {
             return <div className="text-center mt-5"><Spinner animation="border" /></div>;
         }
         if (filteredEmployees.length === 0 && !error) {
-            return <p className="text-center mt-4">Сотрудники не найдены.</p>;
+            return <p className="text-center mt-4">{t('noEmployeesFound')}</p>;
         }
         return (
             <Row xs={1} md={2} lg={3} xl={4} className="g-4">
@@ -108,13 +110,13 @@ function EmployeesPage({ selectedCompanyId }) {
                                 <Card.Title>{employee.fullName}</Card.Title>
                                 <Card.Subtitle className="mb-2 text-muted">{employee.position}</Card.Subtitle>
                                 <hr />
-                                <p className="mb-1 small"><strong>Компания:</strong> {employee.companyName}</p>
-                                <p className="mb-1 small"><strong>Телефон:</strong> {employee.phoneNumber}</p>
-                                <p className="mb-1 small"><strong>Дата рождения:</strong> {new Date(employee.dateOfBirth).toLocaleDateString('ru-RU')}</p>
+                                <p className="mb-1 small"><strong>{t('companyLabel')}:</strong> {employee.companyName}</p>
+                                <p className="mb-1 small"><strong>{t('phoneLabel')}:</strong> {employee.phoneNumber}</p>
+                                <p className="mb-1 small"><strong>{t('dateOfBirthLabel')}:</strong> {new Date(employee.dateOfBirth).toLocaleDateString('ru-RU')}</p>
                             </Card.Body>
                             <Card.Footer>
                                 <span className={`status-badge ${getStatusClass(employee.status)}`}>
-                                    {employee.status}
+                                    {t(employee.status)}
                                 </span>
                             </Card.Footer>
                         </Card>
@@ -129,11 +131,11 @@ function EmployeesPage({ selectedCompanyId }) {
         <Container fluid>
             <Row className="align-items-center mb-4">
                 <Col md={8}>
-                    <h2>Список сотрудников</h2>
+                    <h2>{t('employeeListTitle')}</h2>
                 </Col>
                 <Col md={4} className="text-md-end">
                     <Button variant="primary" onClick={handleShowAddModal}>
-                        Добавить сотрудника
+                        {t('addEmployeeButton')}
                     </Button>
                 </Col>
             </Row>
@@ -142,7 +144,7 @@ function EmployeesPage({ selectedCompanyId }) {
                 <Col md={8}>
                     <InputGroup>
                         <FormControl
-                            placeholder="Поиск по имени..."
+                            placeholder={t('searchByNamePlaceholder')}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -150,11 +152,11 @@ function EmployeesPage({ selectedCompanyId }) {
                 </Col>
                 <Col md={4}>
                     <Form.Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                        <option value="all_except_fired">Активные/В отпуске</option>
-                        <option value="all">Все</option>
-                        <option value="Активен">Активен</option>
-                        <option value="В отпуске">В отпуске</option>
-                        <option value="Уволен">Уволен</option>
+                        <option value="all_except_fired">{t('statusActiveOnLeave')}</option>
+                        <option value="all">{t('statusAll')}</option>
+                        <option value="Активен">{t('statusActive')}</option>
+                        <option value="В отпуске">{t('statusOnLeave')}</option>
+                        <option value="Уволен">{t('statusFired')}</option>
                     </Form.Select>
                 </Col>
             </Row>

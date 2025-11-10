@@ -5,8 +5,10 @@ import axios from 'axios';
 import EmployeeModal from '../components/EmployeeModal';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
+import { useTranslation } from 'react-i18next';
 
 function EmployeeDetailPage() {
+    const { t } = useTranslation();
     const { id } = useParams();
     const navigate = useNavigate();
     const [employee, setEmployee] = useState(null);
@@ -27,9 +29,9 @@ function EmployeeDetailPage() {
             const employeeRes = await axios.get(`/api/employees/${id}`);
             setEmployee(employeeRes.data);
         } catch (err) {
-            setError('Не удалось загрузить данные сотрудника. Возможно, он был удален.');
+            setError(t('employeeLoadErrorDetail'));
         }
-    }, [id]);
+    }, [id, t]);
     
     const fetchAttendanceData = useCallback(async () => {
         try {
@@ -42,20 +44,20 @@ function EmployeeDetailPage() {
             const attendanceRes = await axios.get('/api/reports/attendance', { params });
             setAttendance(attendanceRes.data);
         } catch (err) {
-             setError('Не удалось загрузить отчет о посещаемости.');
+             setError(t('attendanceLoadError'));
         } finally {
             setLoading(false);
         }
-    }, [id, startDate, endDate]);
+    }, [id, startDate, endDate, t]);
 
     const fetchActivityLogs = useCallback(async () => {
         try {
             const response = await axios.get(`/api/employees/${id}/activity`);
             setActivityLogs(response.data);
         } catch (err) {
-            console.error("Не удалось загрузить последние активности.");
+            console.error(t('activityLoadError'));
         }
-    }, [id]);
+    }, [id, t]);
 
     useEffect(() => {
         fetchEmployeeData();
@@ -76,19 +78,19 @@ function EmployeeDetailPage() {
             setShowModal(false); // Закрываем окно только при успехе
             fetchEmployeeData(); // Обновляем данные на странице
         } catch (error) {
-            console.error("Ошибка при сохранении сотрудника:", error);
-            const message = error.response?.data?.error || "Не удалось сохранить данные. Проверьте, что Email и телефон уникальны.";
+            console.error(t('employeeSaveError'), error);
+            const message = error.response?.data?.error || t('employeeSaveDefaultErrorDetail');
             setModalError(message); // Устанавливаем ошибку для модального окна
         }
     };
 
     const handleDelete = async () => {
-        if (window.confirm('Вы уверены? Это действие необратимо.')) {
+        if (window.confirm(t('deleteConfirmation'))) {
             try {
                 await axios.delete(`/api/employees/${id}`);
                 navigate('/employees');
             } catch (err) {
-                setError('Не удалось удалить сотрудника.');
+                setError(t('deleteError'));
             }
         }
     };
@@ -107,13 +109,13 @@ function EmployeeDetailPage() {
         return <Alert variant="danger" className="mt-4">{error}</Alert>;
     }
     if (!employee) {
-        return <p className="text-center mt-4">Сотрудник не найден.</p>;
+        return <p className="text-center mt-4">{t('employeeNotFound')}</p>;
     }
 
     return (
         <Container>
             <Button variant="light" onClick={() => navigate('/employees')} className="mb-3">
-                &larr; К списку сотрудников
+                &larr; {t('backToListButton')}
             </Button>
             <Row>
                 <Col md={12} lg={5} className="mb-4">
@@ -121,43 +123,43 @@ function EmployeeDetailPage() {
                         <Card.Header as="h4" className="text-center">{employee.fullName}</Card.Header>
                         <Card.Body className="text-center">
                             <Image src={employee.photoUrl.startsWith('http') ? employee.photoUrl : `http://localhost:3001${employee.photoUrl}`} roundedCircle thumbnail className="mb-3" style={{width: '150px', height: '150px', objectFit: 'cover'}} />
-                            <p><strong>Должность:</strong> {employee.position}</p>
-                            <p><strong>Компания:</strong> {employee.companyName}</p>
-                            <p><strong>Отдел:</strong> {employee.departmentName}</p>
+                            <p><strong>{t('positionLabel')}:</strong> {employee.position}</p>
+                            <p><strong>{t('companyLabel')}:</strong> {employee.companyName}</p>
+                            <p><strong>{t('departmentLabel')}:</strong> {employee.departmentName}</p>
                             <hr />
-                            <p><strong>Телефон:</strong> {employee.phoneNumber}</p>
-                            <p><strong>Email:</strong> {employee.email}</p>
-                            <p><strong>Дата рождения:</strong> {new Date(employee.dateOfBirth).toLocaleDateString('ru-RU')}</p>
-                            <p><strong>Дата приема:</strong> {new Date(employee.hireDate).toLocaleDateString('ru-RU')}</p>
-                            <p><strong>Статус:</strong> {employee.status}</p>
+                            <p><strong>{t('phoneLabel')}:</strong> {employee.phoneNumber}</p>
+                            <p><strong>{t('emailLabel')}:</strong> {employee.email}</p>
+                            <p><strong>{t('dateOfBirthLabel')}:</strong> {new Date(employee.dateOfBirth).toLocaleDateString('ru-RU')}</p>
+                            <p><strong>{t('hireDateLabel')}:</strong> {new Date(employee.hireDate).toLocaleDateString('ru-RU')}</p>
+                            <p><strong>{t('statusLabel')}:</strong> {t(employee.status)}</p>
                         </Card.Body>
                         <Card.Footer className="d-flex justify-content-between">
-                            <Button variant="warning" onClick={() => setShowModal(true)}>Редактировать</Button>
-                            <Button variant="danger" onClick={handleDelete}>Удалить</Button>
+                            <Button variant="warning" onClick={() => setShowModal(true)}>{t('editButton')}</Button>
+                            <Button variant="danger" onClick={handleDelete}>{t('deleteButton')}</Button>
                         </Card.Footer>
                     </Card>
 
                     <Card>
-                        <Card.Header as="h5">Последняя активность</Card.Header>
+                        <Card.Header as="h5">{t('lastActivityHeader')}</Card.Header>
                         <ListGroup variant="flush">
                             {activityLogs.length > 0 ? activityLogs.map((log, index) => (
                                 <ListGroup.Item key={index}>
                                     <span className={`fw-bold ${log.eventType === 'entry' ? 'text-success' : 'text-danger'}`}>
-                                        {log.eventType === 'entry' ? 'Вход' : 'Выход'}
+                                        {log.eventType === 'entry' ? t('entryLog') : t('exitLog')}
                                     </span>
                                     <span className="text-muted float-end">
                                         {new Date(log.timestamp).toLocaleString('ru-RU')}
                                     </span>
                                 </ListGroup.Item>
-                            )) : <ListGroup.Item>Нет данных об активности.</ListGroup.Item>}
+                            )) : <ListGroup.Item>{t('noActivityData')}</ListGroup.Item>}
                         </ListGroup>
                     </Card>
                 </Col>
                 <Col md={12} lg={7}>
                     <Row className="align-items-center mb-3">
                         <Col>
-                            <h4>Посещаемость</h4>
-                            {attendance.length > 0 && <p className="text-muted">Всего отработано: <strong>{calculateTotalHours()} ч.</strong></p>}
+                            <h4>{t('attendanceHeader')}</h4>
+                            {attendance.length > 0 && <p className="text-muted">{t('totalWorkedHours')}: <strong>{calculateTotalHours()} {t('hoursUnit')}</strong></p>}
                         </Col>
                         <Col className="d-flex justify-content-end">
                             <DatePicker
@@ -178,10 +180,10 @@ function EmployeeDetailPage() {
                     <Table striped bordered hover responsive>
                         <thead>
                             <tr>
-                                <th>Дата</th>
-                                <th>Первый вход</th>
-                                <th>Последний выход</th>
-                                <th>Отработано</th>
+                                <th>{t('dateHeader')}</th>
+                                <th>{t('firstCheckinHeader')}</th>
+                                <th>{t('lastCheckoutHeader')}</th>
+                                <th>{t('workedHoursHeader')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -196,7 +198,7 @@ function EmployeeDetailPage() {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan="4" className="text-center">Нет данных о посещаемости.</td>
+                                    <td colSpan="4" className="text-center">{t('noAttendanceData')}</td>
                                 </tr>
                             )}
                         </tbody>
