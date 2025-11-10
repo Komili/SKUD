@@ -9,10 +9,16 @@ This is a full-stack web application designed for employee time and attendance t
 *   **Attendance Reporting:** Generate and view attendance reports for different time periods and filter by company.
 *   **Authentication:** Secure login for administrators.
 *   **Hardware Integration:** Listens for events from Hikvision terminals.
-*   **Notifications:** Sends updates to a Telegram bot.
+    *   **Notifications:** Sends updates to a Telegram bot.
+
+**Recent Updates:**
+*   **Enhanced Network Architecture:** Documented the two-office setup with specific IP addresses and port forwarding for Hikvision terminals.
+*   **Improved Telegram Notifications:** Implemented clearer, more informative notifications with specific emojis (🟢 for entry, 🔴 for exit), detailed office and door information, and a dedicated alert for unknown employees.
+*   **Admin User Management:** Added a script (`add-admin.js`) for secure creation/update of admin users with hashed passwords.
+*   **Photo Display Fix:** Resolved an issue where employee photos were not displaying correctly due to incorrect URL construction in the frontend.
+*   **Robust Event Handling:** Implemented error handling for Hikvision events to prevent server crashes when an unknown employee ID is received, sending a specific Telegram alert instead.
 
 **Technology Stack:**
-
 *   **Frontend:** React, React Bootstrap, Axios, React Router
 *   **Backend:** Node.js, Express.js, MySQL2, Multer, Bcrypt
 *   **Database:** MySQL
@@ -66,3 +72,23 @@ This is a full-stack web application designed for employee time and attendance t
 *   API requests from the client to the server are proxied to `http://localhost:3001` as configured in `client/package.json`.
 *   Authentication is handled via session storage on the client-side.
 *   File uploads (employee photos) are handled by `multer` on the backend and stored in the `server/uploads` directory.
+
+# Network Architecture
+
+The system is configured to operate across two offices, with the central server located in Office 1.
+
+*   **Office 1 ("Makon" - Server Location):**
+    *   **External IP:** `185.177.0.140`
+    *   **Server Local IP:** `192.168.1.108`
+    *   **Router Port Forwarding:** External port `7660` is forwarded to the server's local IP `192.168.1.108` (targeting the backend on port 3001).
+    *   **Terminal IPs:**
+        *   `192.168.1.190` (Outside, Entry)
+        *   `192.168.1.191` (Inside, Exit)
+    *   **Callback URL for Terminals:** `http://192.168.1.108:3001/api/hikvision/event`
+
+*   **Office 2 ("Favz" - Remote):**
+    *   **External IP:** `91.218.161.76`
+    *   **Terminal IPs:**
+        *   `192.168.0.161` (Outside, Entry)
+        *   `192.168.0.160` (Inside, Exit)
+    *   **Callback URL for Terminals:** `http://185.177.0.140:7660/api/hikvision/event`

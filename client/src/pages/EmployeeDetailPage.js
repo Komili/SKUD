@@ -122,7 +122,7 @@ function EmployeeDetailPage() {
                     <Card className="employee-detail-card mb-4">
                         <Card.Header as="h4" className="text-center">{employee.fullName}</Card.Header>
                         <Card.Body className="text-center">
-                            <Image src={employee.photoUrl.startsWith('http') ? employee.photoUrl : `http://localhost:3001${employee.photoUrl}`} roundedCircle thumbnail className="mb-3" style={{width: '150px', height: '150px', objectFit: 'cover'}} />
+                            <Image src={employee.photoUrl} roundedCircle thumbnail className="mb-3" style={{width: '150px', height: '150px', objectFit: 'cover'}} />
                             <p><strong>{t('positionLabel')}:</strong> {employee.position}</p>
                             <p><strong>{t('companyLabel')}:</strong> {employee.companyName}</p>
                             <p><strong>{t('departmentLabel')}:</strong> {employee.departmentName}</p>

@@ -105,7 +105,7 @@ function EmployeesPage({ selectedCompanyId }) {
                             className="h-100 employee-card text-center" 
                             onClick={() => navigate(`/employees/${employee.id}`)}
                         >
-                            <Card.Img variant="top" src={employee.photoUrl.startsWith('http') ? employee.photoUrl : `http://localhost:3001${employee.photoUrl}`} className="p-3 rounded-circle" />
+                            <Card.Img variant="top" src={employee.photoUrl} className="p-3 rounded-circle" />
                             <Card.Body>
                                 <Card.Title>{employee.fullName}</Card.Title>
                                 <Card.Subtitle className="mb-2 text-muted">{employee.position}</Card.Subtitle>

@@ -11,7 +11,7 @@ const saltRounds = 10;
 // --- Глобальные настройки ---
 const PORT = 3001;
 const TELEGRAM_TOKEN = '8474518444:AAHbd-tFIrYUtI7jqdbzRBfqc6mRZwbD-sI';
-const TELEGRAM_CHAT_IDS = ['305812935', '5409029684'];
+const TELEGRAM_CHAT_IDS = ['305812935', '5409029684', '887623148'];
 
 // Вспомогательная функция для отправки сообщения на все ID в списке
 function sendTelegramMessage(message, options) {
@@ -26,8 +26,8 @@ const mysqlConfig = {
     host: '127.0.0.1',
     port: 3306,
     user: 'skud',
-    password: 'skud',
-    database: 'skud',
+    password: 'Favz050505',
+    database: 'SKUD',
     charset: 'utf8mb4'
 };
 
@@ -115,65 +115,76 @@ function startServer() {
                 return res.status(200).send('OK (Ignored, not an access event)');
             }
 
+            // --- Определение местоположения по IP терминала ---
+            const terminalIp = data.ipAddress;
+            const officeMapping = {
+                '192.168.1.190': { office: 'Makon', door: 'Вход (Снаружи)' },
+                '192.168.1.191': { office: 'Makon', door: 'Выход (Внутри)' },
+                '192.168.0.161': { office: 'Favz', door: 'Вход (Снаружи)' },
+                '192.168.0.160': { office: 'Favz', door: 'Выход (Внутри)' }
+            };
+            const detectedLocation = officeMapping[terminalIp];
+            const officeName = detectedLocation ? detectedLocation.office : 'Неизвестный офис';
+            const doorDescription = detectedLocation ? detectedLocation.door : (event.deviceName || 'Неизвестная дверь');
+
             // --- Обработка события удаленной разблокировки двери ---
             if (event.majorEventType === 3 && event.subEventType === 1024) {
-                const doorName = event.deviceName || 'Неизвестная дверь';
                 const remoteHost = event.remoteHostAddr || 'Неизвестный хост';
                 const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-                const message = `🔓 *Дверь разблокирована удаленно*\n\n🚪 **Устройство:** ${doorName}\n💻 **С хоста:** ${remoteHost}\n⏰ **Время:** ${time}`;
+                const message = `🔓 *Дверь разблокирована удаленно*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n💻 **С хоста:** ${remoteHost}\n⏰ **Время:** ${time}`;
                 
                 sendTelegramMessage(message, { parse_mode: 'Markdown' });
                 
-                console.log(`[HIKVISION EVENT] Отправлено уведомление об удаленной разблокировке двери: ${doorName} с ${remoteHost}`);
+                console.log(`[HIKVISION EVENT] Отправлено уведомление об удаленной разблокировке двери: ${officeName} (${doorDescription}) с ${remoteHost}`);
                 return res.status(200).send('OK (Remote Unlock Event Handled)');
             }
 
             const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const employeeIdRaw = event.employeeNo || event.employeeNoString;
-            const deviceName = event.deviceName || 'Терминал';
-
-            // console.log(`Raw Employee ID: '${employeeIdRaw}', Device: '${deviceName}'`);
-
+            
             if (employeeIdRaw) {
                 const employeeId = parseInt(employeeIdRaw, 10);
                 if (isNaN(employeeId)) {
                     console.error(`Failed to parse employeeId: '${employeeIdRaw}' is not a valid number.`);
                     return res.status(200).send('OK (Error, invalid employeeId)');
                 }
-                // console.log(`Parsed Employee ID: ${employeeId}`);
 
-                // console.log(`Event Type: ${eventType}, Event Date: ${eventDate}`);
-
+                // --- ПРОВЕРКА НА СУЩЕСТВОВАНИЕ СОТРУДНИКА ---
                 const [empRows] = await pool.execute('SELECT fullName FROM employees WHERE id = ?', [employeeId]);
-                const name = empRows.length > 0 ? empRows[0].fullName : `ID ${employeeId}`;
-                // console.log(`Employee Name: ${name}`);
+                const eventType = event.doorNo === 1 ? 'entry' : 'exit';
+                const eventIcon = eventType === 'entry' ? '🟢' : '🔴';
 
-                // console.log("Searching for existing log...");
+                if (empRows.length === 0) {
+                    console.warn(`[ПРЕДУПРЕЖДЕНИЕ] Получено событие для неизвестного сотрудника с ID: ${employeeId}. Игнорируется.`);
+                    const warningMessage = `⚠️ *Обнаружен неизвестный сотрудник*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n🆔 **ID:** ${employeeId}\n⏰ **Время:** ${time}\n\n_Сотрудник не зарегистрирован в базе данных._`;
+                    sendTelegramMessage(warningMessage, { parse_mode: 'Markdown' });
+                    return res.status(200).send('OK (Ignored, unknown employee)');
+                }
+                const name = empRows[0].fullName;
+
+                const eventDate = eventTimestamp.toISOString().split('T')[0];
+
                 const [existingLogRows] = await pool.execute(
                     'SELECT id, checkin FROM attendance_logs WHERE employeeId = ? AND DATE(IFNULL(checkin, checkout)) = ?',
                     [employeeId, eventDate]
                 );
                 const existingLog = existingLogRows.length > 0 ? existingLogRows[0] : null;
-                // console.log("Existing Log Found:", existingLog);
 
                 if (eventType === 'entry') {
-                    // console.log("Processing ENTRY event...");
                     if (existingLog && existingLog.checkin) {
-                        // console.log("Check-in already exists for today. Ignoring.");
                         return res.status(200).send('OK (Duplicate Entry Ignored)');
                     }
-
+                    
+                    const message = `${eventIcon} *Вход сотрудника*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n👤 **Сотрудник:** ${name}\n⏰ **Время:** ${time}`;
                     sendTelegramMessage(message, { parse_mode: 'Markdown' });
 
                     if (existingLog) {
-                        // console.log(`Updating existing log (ID: ${existingLog.id}) with check-in time.`);
                         await pool.execute(
                             'UPDATE attendance_logs SET checkin = ? WHERE id = ?',
                             [eventTimestamp, existingLog.id]
                         );
                     } else {
-                        // console.log("No existing log for today. Creating new record with check-in time.");
                         await pool.execute(
                             'INSERT INTO attendance_logs (employeeId, checkin) VALUES (?, ?)',
                             [employeeId, eventTimestamp]
@@ -181,18 +192,15 @@ function startServer() {
                     }
 
                 } else { // eventType === 'exit'
-                    // console.log("Processing EXIT event...");
-                    const message = `🔴 *Выход*\n\n👤 **Сотрудник:** ${name}\n📍 **Устройство:** ${deviceName}\n⏰ **Время:** ${time}`;
+                    const message = `${eventIcon} *Выход сотрудника*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n👤 **Сотрудник:** ${name}\n⏰ **Время:** ${time}`;
                     sendTelegramMessage(message, { parse_mode: 'Markdown' });
 
                     if (existingLog) {
-                        // console.log(`Updating existing log (ID: ${existingLog.id}) with check-out time.`);
                         await pool.execute(
                             'UPDATE attendance_logs SET checkout = ? WHERE id = ?',
                             [eventTimestamp, existingLog.id]
                         );
                     } else {
-                        // console.log("No existing log for today. Creating new record with check-out time.");
                         await pool.execute(
                             'INSERT INTO attendance_logs (employeeId, checkout) VALUES (?, ?)',
                             [employeeId, eventTimestamp]
@@ -200,7 +208,6 @@ function startServer() {
                     }
                 }
                 
-                // console.log("--- [EVENT PROCESSING FINISHED] ---");
                 return res.status(200).send('OK (Access Event Handled)');
             } else {
                 // console.log("Event has no employeeId. Ignoring.");
