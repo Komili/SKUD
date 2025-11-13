@@ -87,140 +87,142 @@ function startServer() {
 
     // --- Роуты API ---
 
+    // Тестовый роут для проверки Telegram
+    app.get('/api/test-telegram', (req, res) => {
+        const testMessage = '✅ Это тестовое сообщение для проверки работы уведомлений.';
+        try {
+            sendTelegramMessage(testMessage, {});
+            res.status(200).send('Тестовое сообщение отправлено. Проверьте Telegram.');
+        } catch (error) {
+            console.error('[Telegram Error] Ошибка при отправке тестового сообщения:', error);
+            res.status(500).send('Ошибка при отправке тестового сообщения. См. логи сервера.');
+        }
+    });
+
     // События от терминала
     app.post('/api/hikvision/event', express.text({ type: '*/*' }), async (req, res) => {
         try {
-            // console.log("--- [HIKVISION EVENT RECEIVED] ---");
-            // console.log("Raw Body:", req.body);
+            const jsonMatches = req.body.match(/{[\s\S]*?}/g);
 
-            const jsonMatch = req.body.match(/{[\s\S]*}/);
-            if (!jsonMatch) {
-                // console.log("No JSON found in body. Ignoring.");
+            if (!jsonMatches || jsonMatches.length === 0) {
                 return res.status(200).send('OK (Ignored, no JSON)');
             }
-            
-            const data = JSON.parse(jsonMatch[0]);
-            // console.log("Parsed Data:", JSON.stringify(data, null, 2));
 
-            const eventTimestamp = new Date(data.dateTime);
+            for (const jsonString of jsonMatches) {
+                let data;
+                const cleanJsonString = jsonString.replace(/\0/g, '').trim();
 
-            if (serverStartTime && eventTimestamp < serverStartTime) {
-                // console.log("Ignoring old event from before server start.");
-                return res.status(200).send('OK (Ignored, old event)');
-            }
-            
-            const event = data.AccessControllerEvent;
-            if (!event) {
-                // console.log("No AccessControllerEvent in data. Ignoring.");
-                return res.status(200).send('OK (Ignored, not an access event)');
-            }
-
-            // --- Определение местоположения и типа события по IP терминала ---
-            const terminalIp = data.ipAddress;
-            const officeMapping = {
-                '192.168.1.190': { office: 'Makon', door: 'Вход (Снаружи)', type: 'entry' },
-                '192.168.1.191': { office: 'Makon', door: 'Выход (Внутри)', type: 'exit' },
-                '192.168.0.161': { office: 'Favz', door: 'Вход (Снаружи)', type: 'entry' },
-                '192.168.0.160': { office: 'Favz', door: 'Выход (Внутри)', type: 'exit' }
-            };
-            const detectedLocation = officeMapping[terminalIp];
-
-            // Если IP не найден в списке, событие игнорируется
-            if (!detectedLocation) {
-                console.warn(`[ПРЕДУПРЕЖДЕНИЕ] Получено событие с неизвестного IP терминала: ${terminalIp}. Игнорируется.`);
-                return res.status(200).send('OK (Ignored, unknown terminal IP)');
-            }
-
-            const officeName = detectedLocation.office;
-            const doorDescription = detectedLocation.door;
-            const eventType = detectedLocation.type; // <-- Новая, надежная логика
-
-            // --- Обработка события удаленной разблокировки двери ---
-            if (event.majorEventType === 3 && event.subEventType === 1024) {
-                const remoteHost = event.remoteHostAddr || 'Неизвестный хост';
-                const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-                const message = `🔓 *Дверь разблокирована удаленно*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n💻 **С хоста:** ${remoteHost}\n⏰ **Время:** ${time}`;
-                
-                sendTelegramMessage(message, { parse_mode: 'Markdown' });
-                
-                console.log(`[HIKVISION EVENT] Отправлено уведомление об удаленной разблокировке двери: ${officeName} (${doorDescription}) с ${remoteHost}`);
-                return res.status(200).send('OK (Remote Unlock Event Handled)');
-            }
-
-            const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const employeeIdRaw = event.employeeNo || event.employeeNoString;
-            
-            if (employeeIdRaw) {
-                const employeeId = parseInt(employeeIdRaw, 10);
-                if (isNaN(employeeId)) {
-                    console.error(`Failed to parse employeeId: '${employeeIdRaw}' is not a valid number.`);
-                    return res.status(200).send('OK (Error, invalid employeeId)');
+                try {
+                    data = JSON.parse(cleanJsonString);
+                } catch (parseError) {
+                    // Пробуем исправить JSON, если он был обрезан (частая проблема с оборудованием)
+                    const fixedJsonString = cleanJsonString + '}';
+                    try {
+                        data = JSON.parse(fixedJsonString);
+                        // console.log('[INFO] Успешно исправлен и обработан обрезанный JSON.');
+                    } catch (secondError) {
+                        // console.error("--- [!!! ОШИБКА РАЗБОРА JSON-ОБЪЕКТА !!!] ---");
+                        // console.error("Не удалось разобрать сегмент даже после попытки исправления:", jsonString);
+                        continue; // Пропускаем этот поврежденный сегмент
+                    }
                 }
 
-                // --- ПРОВЕРКА НА СУЩЕСТВОВАНИЕ СОТРУДНИКА ---
-                const [empRows] = await pool.execute('SELECT fullName FROM employees WHERE id = ?', [employeeId]);
-                const eventIcon = eventType === 'entry' ? '🟢' : '🔴';
+                try {
+                    const eventTimestamp = new Date(data.dateTime);
 
-                if (empRows.length === 0) {
-                    console.warn(`[ПРЕДУПРЕЖДЕНИЕ] Получено событие для неизвестного сотрудника с ID: ${employeeId}. Игнорируется.`);
-                    const warningMessage = `⚠️ *Обнаружен неизвестный сотрудник*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n🆔 **ID:** ${employeeId}\n⏰ **Время:** ${time}\n\n_Сотрудник не зарегистрирован в базе данных._`;
-                    sendTelegramMessage(warningMessage, { parse_mode: 'Markdown' });
-                    return res.status(200).send('OK (Ignored, unknown employee)');
-                }
-                const eventDate = eventTimestamp.toISOString().split('T')[0];
-                const name = empRows[0].fullName;
+                    if (serverStartTime && eventTimestamp < serverStartTime) {
+                        continue;
+                    }
+                    
+                    const event = data.AccessControllerEvent;
+                    if (!event) {
+                        continue;
+                    }
 
-                // --- 1. Отправляем уведомление в Telegram при каждом событии ---
-                const message = `${eventIcon} *${eventType === 'entry' ? 'Вход' : 'Выход'} сотрудника*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n👤 **Сотрудник:** ${name}\n⏰ **Время:** ${time}`;
-                sendTelegramMessage(message, { parse_mode: 'Markdown' });
+                    // --- Определение местоположения и типа события по IP терминала ---
+                    const terminalIp = data.ipAddress;
+                    const officeMapping = {
+                        '192.168.1.190': { office: 'Makon', door: 'Вход (Снаружи)', type: 'entry' },
+                        '192.168.1.191': { office: 'Makon', door: 'Выход (Внутри)', type: 'exit' },
+                        '192.168.0.161': { office: 'Favz', door: 'Вход (Снаружи)', type: 'entry' },
+                        '192.168.0.160': { office: 'Favz', door: 'Выход (Внутри)', type: 'exit' }
+                    };
+                    const detectedLocation = officeMapping[terminalIp];
 
-                // --- 2. Применяем логику для записи в базу данных ---
-                const [existingLogRows] = await pool.execute(
-                    'SELECT id, checkin FROM attendance_logs WHERE employeeId = ? AND DATE(IFNULL(checkin, checkout)) = ?',
-                    [employeeId, eventDate]
-                );
-                const existingLog = existingLogRows.length > 0 ? existingLogRows[0] : null;
+                    if (!detectedLocation) {
+                        console.warn(`[ПРЕДУПРЕЖДЕНИЕ] Получено событие с неизвестного IP терминала: ${terminalIp}. Игнорируется.`);
+                        continue;
+                    }
 
-                if (eventType === 'entry') {
-                    // Записываем в базу только ПЕРВЫЙ вход за день
-                    if (!existingLog || !existingLog.checkin) {
-                        if (existingLog) {
-                            // Если запись за этот день уже есть (например, был только выход), обновляем ее
-                            await pool.execute(
-                                'UPDATE attendance_logs SET checkin = ? WHERE id = ?',
-                                [eventTimestamp, existingLog.id]
-                            );
-                        } else {
-                            // Если записи за этот день нет, создаем новую
-                            await pool.execute(
-                                'INSERT INTO attendance_logs (employeeId, checkin) VALUES (?, ?)',
-                                [employeeId, eventTimestamp]
-                            );
+                    const officeName = detectedLocation.office;
+                    const doorDescription = detectedLocation.door;
+                    const eventType = detectedLocation.type;
+
+                    // --- Обработка события удаленной разблокировки двери ---
+                    if (event.majorEventType === 3 && event.subEventType === 1024) {
+                        const remoteHost = event.remoteHostAddr || 'Неизвестный хост';
+                        const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        const message = `🔓 *Дверь разблокирована удаленно*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n💻 **С хоста:** ${remoteHost}\n⏰ **Время:** ${time}`;
+                        sendTelegramMessage(message, { parse_mode: 'Markdown' });
+                        // console.log(`[HIKVISION EVENT] Отправлено уведомление об удаленной разблокировке двери: ${officeName} (${doorDescription}) с ${remoteHost}`);
+                        continue;
+                    }
+
+                    const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    const employeeIdRaw = event.employeeNo || event.employeeNoString;
+                    
+                    if (employeeIdRaw) {
+                        const employeeId = parseInt(employeeIdRaw, 10);
+                        if (isNaN(employeeId)) {
+                            console.error(`Failed to parse employeeId: '${employeeIdRaw}' is not a valid number.`);
+                            continue;
+                        }
+
+                        const [empRows] = await pool.execute('SELECT fullName FROM employees WHERE id = ?', [employeeId]);
+                        const eventIcon = eventType === 'entry' ? '🟢' : '🔴';
+
+                        if (empRows.length === 0) {
+                            console.warn(`[ПРЕДУПРЕЖДЕНИЕ] Получено событие для неизвестного сотрудника с ID: ${employeeId}. Игнорируется.`);
+                            const warningMessage = `⚠️ *Обнаружен неизвестный сотрудник*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n🆔 **ID:** ${employeeId}\n⏰ **Время:** ${time}\n\n_Сотрудник не зарегистрирован в базе данных._`;
+                            sendTelegramMessage(warningMessage, { parse_mode: 'Markdown' });
+                            continue;
+                        }
+                        const eventDate = eventTimestamp.toISOString().split('T')[0];
+                        const name = empRows[0].fullName;
+
+                        const message = `${eventIcon} *${eventType === 'entry' ? 'Вход' : 'Выход'} сотрудника*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n👤 **Сотрудник:** ${name}\n⏰ **Время:** ${time}`;
+                        sendTelegramMessage(message, { parse_mode: 'Markdown' });
+
+                        const [existingLogRows] = await pool.execute(
+                            'SELECT id, checkin FROM attendance_logs WHERE employeeId = ? AND DATE(IFNULL(checkin, checkout)) = ?',
+                            [employeeId, eventDate]
+                        );
+                        const existingLog = existingLogRows.length > 0 ? existingLogRows[0] : null;
+
+                        if (eventType === 'entry') {
+                            if (!existingLog || !existingLog.checkin) {
+                                if (existingLog) {
+                                    await pool.execute('UPDATE attendance_logs SET checkin = ? WHERE id = ?', [eventTimestamp, existingLog.id]);
+                                } else {
+                                    await pool.execute('INSERT INTO attendance_logs (employeeId, checkin) VALUES (?, ?)', [employeeId, eventTimestamp]);
+                                }
+                            }
+                        } else { // eventType === 'exit'
+                            if (existingLog) {
+                                await pool.execute('UPDATE attendance_logs SET checkout = ? WHERE id = ?', [eventTimestamp, existingLog.id]);
+                            } else {
+                                await pool.execute('INSERT INTO attendance_logs (employeeId, checkout) VALUES (?, ?)', [employeeId, eventTimestamp]);
+                            }
                         }
                     }
-                    // Если checkin уже есть, ничего не делаем с базой
-
-                } else { // eventType === 'exit'
-                    // Всегда обновляем или вставляем время выхода, чтобы сохранить ПОСЛЕДНИЙ выход
-                    if (existingLog) {
-                        await pool.execute(
-                            'UPDATE attendance_logs SET checkout = ? WHERE id = ?',
-                            [eventTimestamp, existingLog.id]
-                        );
-                    } else {
-                        await pool.execute(
-                            'INSERT INTO attendance_logs (employeeId, checkout) VALUES (?, ?)',
-                            [employeeId, eventTimestamp]
-                        );
-                    }
+                } catch (processingError) {
+                    console.error("--- [!!! ОШИБКА ОБРАБОТКИ СОБЫТИЯ !!!] ---");
+                    console.error("Ошибка при обработке данных:", data);
+                    console.error(processingError);
                 }
-                
-                return res.status(200).send('OK (Access Event Handled)');
-            } else {
-                // console.log("Event has no employeeId. Ignoring.");
-                res.status(200).send('OK (System Event, no employeeId)');
             }
+            
+            res.status(200).send('OK (All Events Processed)');
             
         } catch (error) {
             console.error("--- [!!! CRITICAL ERROR IN EVENT HANDLER !!!] ---");

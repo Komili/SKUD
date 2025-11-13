@@ -27,36 +27,36 @@ function createResponsePacket(command, sessionId) {
     lengthBuffer.writeUInt32LE(totalLength, 0);
 
     const finalPacket = Buffer.concat([header, lengthBuffer, commandId, sessionIdBuffer, reserved]);
-    console.log(`[ISUP-PACKET] Создан ответный пакет: command=${command}, hex=${finalPacket.toString('hex')}`);
+    // console.log(`[ISUP-PACKET] Создан ответный пакет: command=${command}, hex=${finalPacket.toString('hex')}`);
     return finalPacket;
 }
 
 function startListener() {
     const server = net.createServer((socket) => {
         const remoteIp = socket.remoteAddress.split(':').pop();
-        console.log(`[ISUP-LISTENER] >>> Установлено новое TCP соединение от: ${remoteIp}`);
+        // console.log(`[ISUP-LISTENER] >>> Установлено новое TCP соединение от: ${remoteIp}`);
 
         let deviceSessionId = null;
 
         socket.on('data', async (data) => {
-            console.log(`[ISUP-LISTENER] === Получены данные от ${remoteIp} (hex): ${data.toString('hex')}`);
+            // console.log(`[ISUP-LISTENER] === Получены данные от ${remoteIp} (hex): ${data.toString('hex')}`);
 
             const dataString = data.toString('utf-8', 40);
             
             if (dataString.includes('<Register>')) {
-                console.log(`[ISUP-LISTENER] Обнаружен пакет регистрации от ${remoteIp}.`);
+                // console.log(`[ISUP-LISTENER] Обнаружен пакет регистрации от ${remoteIp}.`);
                 deviceSessionId = data.slice(16, 32);
                 const response = createResponsePacket(0x02, deviceSessionId);
                 socket.write(response);
-                console.log(`[ISUP-LISTENER] Отправлен ответ на регистрацию.`);
+                // console.log(`[ISUP-LISTENER] Отправлен ответ на регистрацию.`);
                 return;
             }
 
             if (data.length > 12 && data.readUInt32LE(12) === 0x14) {
-                 console.log(`[ISUP-LISTENER] Обнаружен Heartbeat от ${remoteIp}.`);
+                 // console.log(`[ISUP-LISTENER] Обнаружен Heartbeat от ${remoteIp}.`);
                  const response = createResponsePacket(0x15, deviceSessionId);
                  socket.write(response);
-                 console.log(`[ISUP-LISTENER] Отправлен ответ на Heartbeat.`);
+                 // console.log(`[ISUP-LISTENER] Отправлен ответ на Heartbeat.`);
                  return;
             }
 
@@ -77,7 +77,7 @@ function startListener() {
         });
 
         socket.on('close', () => {
-            console.log(`[ISUP-LISTENER] <<< Соединение с ${remoteIp} закрыто.`);
+            // console.log(`[ISUP-LISTENER] <<< Соединение с ${remoteIp} закрыто.`);
         });
 
         socket.on('error', (err) => {
