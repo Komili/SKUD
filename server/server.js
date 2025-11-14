@@ -12,6 +12,15 @@ const saltRounds = 10;
 const PORT = 3001;
 const TELEGRAM_TOKEN = '8474518444:AAHbd-tFIrYUtI7jqdbzRBfqc6mRZwbD-sI';
 const TELEGRAM_CHAT_IDS = ['305812935', '5409029684', '887623148'];
+const PUBLIC_SERVER_URL = 'http://185.177.0.140:7660';
+
+// --- Инициализация ---
+const app = express();
+const bot = new TelegramBot(TELEGRAM_TOKEN);
+const uploadsDir = path.join(__dirname, 'uploads');
+const tempDir = path.join(__dirname, 'tmp');
+let serverStartTime;
+let pool;
 
 // Вспомогательная функция для отправки сообщения на все ID в списке
 function sendTelegramMessage(message, options) {
@@ -31,23 +40,17 @@ const mysqlConfig = {
     charset: 'utf8mb4'
 };
 
-// --- Инициализация ---
-const app = express();
-const bot = new TelegramBot(TELEGRAM_TOKEN);
-const uploadsDir = path.join(__dirname, 'uploads');
-let serverStartTime;
-let pool;
-
 // --- Настройка хранилища ---
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadsDir),
+    destination: (req, file, cb) => cb(null, uploadsDir), // Сохраняем в папку uploads
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname);
-        // Используем ФИО из тела запроса, очищаем его и добавляем временную метку для уникальности
         const sanitizedFullName = (req.body.fullName || 'employee')
-            .replace(/[^a-z0-9а-яё\s]/gi, '') // Удаляем недопустимые символы
-            .replace(/\s+/g, '_'); // Заменяем пробелы на подчеркивания
+            .replace(/[^a-z0-9а-яё\s]/gi, '')
+            .replace(/\s+/g, '_');
         
         cb(null, `${sanitizedFullName}-${Date.now()}${ext}`);
     }
@@ -115,15 +118,11 @@ function startServer() {
                 try {
                     data = JSON.parse(cleanJsonString);
                 } catch (parseError) {
-                    // Пробуем исправить JSON, если он был обрезан (частая проблема с оборудованием)
                     const fixedJsonString = cleanJsonString + '}';
                     try {
                         data = JSON.parse(fixedJsonString);
-                        // console.log('[INFO] Успешно исправлен и обработан обрезанный JSON.');
                     } catch (secondError) {
-                        // console.error("--- [!!! ОШИБКА РАЗБОРА JSON-ОБЪЕКТА !!!] ---");
-                        // console.error("Не удалось разобрать сегмент даже после попытки исправления:", jsonString);
-                        continue; // Пропускаем этот поврежденный сегмент
+                        continue;
                     }
                 }
 
@@ -139,7 +138,6 @@ function startServer() {
                         continue;
                     }
 
-                    // --- Определение местоположения и типа события по IP терминала ---
                     const terminalIp = data.ipAddress;
                     const officeMapping = {
                         '192.168.1.190': { office: 'Makon', door: 'Вход (Снаружи)', type: 'entry' },
@@ -158,13 +156,11 @@ function startServer() {
                     const doorDescription = detectedLocation.door;
                     const eventType = detectedLocation.type;
 
-                    // --- Обработка события удаленной разблокировки двери ---
                     if (event.majorEventType === 3 && event.subEventType === 1024) {
                         const remoteHost = event.remoteHostAddr || 'Неизвестный хост';
                         const time = eventTimestamp.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                         const message = `🔓 *Дверь разблокирована удаленно*\n\n🏢 **Офис:** ${officeName}\n🚪 **Дверь:** ${doorDescription}\n💻 **С хоста:** ${remoteHost}\n⏰ **Время:** ${time}`;
                         sendTelegramMessage(message, { parse_mode: 'Markdown' });
-                        // console.log(`[HIKVISION EVENT] Отправлено уведомление об удаленной разблокировке двери: ${officeName} (${doorDescription}) с ${remoteHost}`);
                         continue;
                     }
 
@@ -231,8 +227,6 @@ function startServer() {
         }
     });
 
-    // --- ВОССТАНОВЛЕННЫЕ ЭНДПОИНТЫ ---
-
     // Аутентификация
     app.post('/api/auth/login', async (req, res) => {
         const { username, password } = req.body;
@@ -253,12 +247,55 @@ function startServer() {
         }
     });
 
+    // Публичный роут для самостоятельной регистрации
+    app.post('/api/public/employees/register', upload.single('photo'), async (req, res) => {
+        try {
+            const { fullName, position, phoneNumber, email, dateOfBirth, hireDate } = req.body;
+
+            if (!fullName || !req.file || !phoneNumber || !email || !dateOfBirth || !hireDate) {
+                return res.status(400).json({ error: 'Пожалуйста, заполните все обязательные поля и сделайте фото.' });
+            }
+
+            const [existing] = await pool.execute(
+                'SELECT id FROM employees WHERE fullName = ? OR (email IS NOT NULL AND email = ?) OR (phoneNumber IS NOT NULL AND phoneNumber = ?)',
+                [fullName, email, phoneNumber]
+            );
+
+            if (existing.length > 0) {
+                return res.status(409).json({ error: 'Сотрудник с таким ФИО, Email или телефоном уже существует или ожидает подтверждения.' });
+            }
+
+            const photoUrl = `/uploads/${req.file.filename}`;
+            
+            const formatDate = (dateString) => {
+                if (!dateString) return null;
+                return new Date(dateString).toISOString().split('T')[0];
+            };
+
+            const finalDateOfBirth = formatDate(dateOfBirth);
+            const finalHireDate = formatDate(hireDate);
+
+            const sql = `
+                INSERT INTO employees 
+                (fullName, position, companyId, departmentId, phoneNumber, email, photoUrl, approval_status, dateOfBirth, hireDate) 
+                VALUES (?, ?, NULL, NULL, ?, ?, ?, 'pending', ?, ?)
+            `;
+            const params = [fullName, position || null, phoneNumber, email, photoUrl, finalDateOfBirth, finalHireDate];
+            
+            await pool.execute(sql, params);
+            res.status(201).json({ message: 'Ваша заявка на регистрацию успешно отправлена и ожидает одобрения администратором.' });
+        
+        } catch (error) {
+            console.error('Ошибка при публичной регистрации сотрудника:', error);
+            res.status(500).json({ error: 'Не удалось обработать ваш запрос. Пожалуйста, попробуйте позже.' });
+        }
+    });
+
     // CRUD Сотрудников
     app.post('/api/employees', upload.single('photo'), async (req, res) => {
         try {
             const { fullName, position, companyId, departmentId, phoneNumber, email, status, dateOfBirth, hireDate } = req.body;
             
-            // ПРОВЕРКА НА УНИКАЛЬНОСТЬ
             const [existing] = await pool.execute(
                 'SELECT id FROM employees WHERE fullName = ? OR email = ? OR phoneNumber = ?',
                 [fullName, email, phoneNumber]
@@ -270,24 +307,18 @@ function startServer() {
 
             const photoUrl = req.file ? `/uploads/${req.file.filename}` : '/uploads/placeholder.png';
 
-            if (!companyId || !departmentId) {
-                return res.status(400).json({ error: 'Необходимо выбрать компанию и отдел.' });
-            }
-
-            // Функция для форматирования даты в YYYY-MM-DD
             const formatDate = (dateString) => {
                 if (!dateString) return null;
                 return new Date(dateString).toISOString().split('T')[0];
             };
 
-            // Преобразуем пустые строки и форматируем даты
             const finalDateOfBirth = formatDate(dateOfBirth);
             const finalHireDate = formatDate(hireDate);
 
             const sql = `
                 INSERT INTO employees 
-                (fullName, position, companyId, departmentId, phoneNumber, email, photoUrl, status, dateOfBirth, hireDate) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (fullName, position, companyId, departmentId, phoneNumber, email, photoUrl, status, approval_status, dateOfBirth, hireDate) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?)
             `;
             const params = [fullName, position, companyId, departmentId, phoneNumber, email, photoUrl, status, finalDateOfBirth, finalHireDate];
             
@@ -314,7 +345,6 @@ function startServer() {
             const { id } = req.params;
             const { fullName, position, companyId, departmentId, phoneNumber, email, status, dateOfBirth, hireDate } = req.body;
             
-            // ПРОВЕРКА НА УНИКАЛЬНОСТЬ (кроме текущего пользователя)
             const [existing] = await pool.execute(
                 'SELECT id FROM employees WHERE (fullName = ? OR email = ? OR phoneNumber = ?) AND id != ?',
                 [fullName, email, phoneNumber, id]
@@ -334,7 +364,6 @@ function startServer() {
                 }
             }
 
-            // Функция для форматирования даты в YYYY-MM-DD
             const formatDate = (dateString) => {
                 if (!dateString) return null;
                 return new Date(dateString).toISOString().split('T')[0];
@@ -373,7 +402,6 @@ function startServer() {
         try {
             const { id } = req.params;
             
-            // Сначала получаем путь к фото, чтобы удалить файл
             const [rows] = await pool.execute('SELECT photoUrl FROM employees WHERE id = ?', [id]);
             if (rows.length > 0 && rows[0].photoUrl && rows[0].photoUrl !== '/uploads/placeholder.png') {
                 const photoPath = path.join(__dirname, rows[0].photoUrl);
@@ -382,7 +410,6 @@ function startServer() {
                 }
             }
 
-            // Удаляем запись из базы
             const [result] = await pool.execute('DELETE FROM employees WHERE id = ?', [id]);
             
             if (result.affectedRows === 0) {
@@ -405,19 +432,42 @@ function startServer() {
                     e.id, e.fullName, e.position, c.name AS companyName, e.phoneNumber, e.photoUrl, e.status, e.dateOfBirth, e.companyId
                 FROM employees e
                 LEFT JOIN companies c ON e.companyId = c.id
+                WHERE e.approval_status = 'approved'
             `;
             const params = [];
 
             if (companyId) {
-                sql += ' WHERE e.companyId = ?';
+                sql += ' AND e.companyId = ?';
                 params.push(companyId);
             }
 
             sql += ' ORDER BY e.fullName';
             
             const [rows] = await pool.query(sql, params);
+            
             res.json(rows);
         } catch (error) {
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        }
+    });
+
+    // Получение сотрудников со статусом 'pending'
+    app.get('/api/employees/pending', async (req, res) => {
+        try {
+            const sql = `
+                SELECT 
+                    e.id, e.fullName, e.position, c.name AS companyName, e.photoUrl, e.email, e.phoneNumber,
+                    DATE_FORMAT(e.hireDate, '%Y-%m-%d') as hireDate
+                FROM employees e
+                LEFT JOIN companies c ON e.companyId = c.id
+                WHERE e.approval_status = 'pending'
+                ORDER BY e.id DESC
+            `;
+            const [rows] = await pool.query(sql);
+            
+            res.json(rows);
+        } catch (error) {
+            console.error('Ошибка при получении ожидающих сотрудников:', error);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -436,12 +486,36 @@ function startServer() {
             `;
             const [rows] = await pool.execute(sql, [req.params.id]);
             if (rows.length > 0) {
-                res.json(rows[0]);
+                const employee = rows[0];
+                res.json(employee);
             } else {
                 res.status(404).json({ error: 'Сотрудник не найден' });
             }
         } catch (error) {
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        }
+    });
+
+    // Одобрение сотрудника
+    app.post('/api/employees/:id/approve', async (req, res) => {
+        const employeeId = req.params.id;
+        try {
+            const [updateResult] = await pool.execute(
+                "UPDATE employees SET approval_status = 'approved' WHERE id = ? AND approval_status = 'pending'",
+                [employeeId]
+            );
+
+            if (updateResult.affectedRows === 0) {
+                return res.status(404).json({ error: 'Сотрудник не найден или уже одобрен.' });
+            }
+
+            res.json({ message: 'Сотрудник успешно одобрен в локальной базе данных.' });
+
+        } catch (error) {
+            console.error(`Ошибка при одобрении сотрудника для ID ${employeeId}:`, error);
+            res.status(500).json({
+                error: `Произошла ошибка при одобрении сотрудника: ${error.message}` 
+            });
         }
     });
 
