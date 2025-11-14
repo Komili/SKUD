@@ -8,6 +8,8 @@ This is a full-stack web application designed for employee time and attendance t
 *   **Employee Management:** Full CRUD (Create, Read, Update, Delete) functionality for employee records, including photo uploads.
 *   **Attendance Reporting:** Generate and view attendance reports for different time periods and filter by company.
 *   **Authentication:** Secure login for administrators.
+*   **Public Employee Registration:** A public-facing form for new employees to submit their registration details and photo.
+*   **Pending Approval Management:** An admin interface to approve or reject new employee submissions.
 *   **Hardware Integration:** Listens for events from Hikvision terminals.
     *   **Notifications:** Sends updates to a Telegram bot.
 
@@ -17,6 +19,7 @@ This is a full-stack web application designed for employee time and attendance t
 *   **Admin User Management:** Added a script (`add-admin.js`) for secure creation/update of admin users with hashed passwords.
 *   **Photo Display Fix:** Resolved an issue where employee photos were not displaying correctly due to incorrect URL construction in the frontend.
 *   **Robust Event Handling:** Implemented error handling for Hikvision events to prevent server crashes when an unknown employee ID is received, sending a specific Telegram alert instead.
+*   **Registration Workflow:** Added a complete workflow for public employee registration and a dedicated admin page for approving or rejecting pending applications.
 
 **Technology Stack:**
 *   **Frontend:** React, React Bootstrap, Axios, React Router
